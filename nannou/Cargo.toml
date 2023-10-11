@@ -11,8 +11,7 @@ homepage = "https://github.com/nannou-org/nannou"
 edition = "2018"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-futures = "0.3"
+async-std = "1.10.0"
 find_folder = "0.3"
 getrandom = "0.2.3"
 image = "0.23"
@@ -40,4 +39,4 @@ default = ["notosans"]
 # Enables SPIR-V support in the `wgpu` module.
 spirv = ["nannou_wgpu/spirv"]
 # Enables experimental WASM compilation for CI-use only
-wasm-experimental = ["getrandom/js", "web-sys", "wgpu_upstream/webgl"]
+wasm-experimental = ["getrandom/js", "web-sys", "wgpu_upstream/webgl", "async-std/unstable"]

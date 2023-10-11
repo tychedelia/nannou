@@ -174,7 +174,7 @@ fn update(app: &App, model: &mut Model, _update: Update) {
             }
         }
     };
-    tokio::spawn(future);
+    async_std::task::spawn(future);
 
     // Check for resource cleanups and mapping callbacks.
     //

@@ -91,7 +91,11 @@ impl ThreadPool {
             active_futures.fetch_sub(1, atomic::Ordering::SeqCst);
         };
 
-        tokio::spawn(future);
+        #[cfg(not(target_os = "unknown"))]
+        async_std::task::spawn(future);
+        #[cfg(target_os = "unknown")]
+        async_std::task::spawn_local(future);
+
         Ok(())
     }
 

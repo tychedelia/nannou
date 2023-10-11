@@ -75,8 +75,7 @@ impl AdapterMap {
         options: wgpu::RequestAdapterOptions<'b>,
         instance: &'a wgpu::Instance,
     ) -> Option<Arc<ActiveAdapter>> {
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(self.get_or_request_async(options, instance))
+        async_std::task::block_on(self.get_or_request_async(options, instance))
     }
 
     #[cfg(not(target_os = "unknown"))]
@@ -92,8 +91,7 @@ impl AdapterMap {
         options: wgpu::RequestAdapterOptions<'b>,
         instance: &'a wgpu::Instance,
     ) -> Option<Arc<ActiveAdapter>> {
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(self.request_async(options, instance))
+        async_std::task::block_on(self.request_async(options, instance))
     }
 
     /// The async implementation of `get_or_request`.
@@ -180,8 +178,7 @@ impl ActiveAdapter {
         &self,
         descriptor: wgpu::DeviceDescriptor<'static>,
     ) -> Arc<DeviceQueuePair> {
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(self.get_or_request_device_async(descriptor))
+        async_std::task::block_on(self.get_or_request_device_async(descriptor))
     }
 
     #[cfg(not(target_os = "unknown"))]
@@ -194,8 +191,7 @@ impl ActiveAdapter {
         &self,
         descriptor: wgpu::DeviceDescriptor<'static>,
     ) -> Arc<DeviceQueuePair> {
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(self.request_device_async(descriptor))
+        async_std::task::block_on(self.request_device_async(descriptor))
     }
 
     /// Check for a device with the given descriptor or request one.
