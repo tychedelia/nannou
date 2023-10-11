@@ -312,6 +312,9 @@ impl wgpu::RowPaddedBuffer {
     /// polled. You should *not* rely on the being ready immediately.
     pub async fn read<'b>(&'b self) -> Result<ImageReadMapping<'b>, wgpu::BufferAsyncError> {
         let slice = self.buffer.slice(..);
+        slice.map_async(wgpu::MapMode::Read).await?;
+
+
         let (tx, rx) = futures::channel::oneshot::channel();
 
         slice.map_async(wgpu::MapMode::Read, |res| {
