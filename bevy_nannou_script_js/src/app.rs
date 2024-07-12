@@ -1,5 +1,7 @@
 use bevy::prelude::info;
 // NOTE: this example requires the `console` feature to run correctly.
+use boa_engine::object::builtins::JsArray;
+use boa_engine::value::Numeric;
 use boa_engine::{
     class::{Class, ClassBuilder},
     error::JsNativeError,
@@ -8,8 +10,6 @@ use boa_engine::{
     property::Attribute,
     Context, JsArgs, JsData, JsResult, JsString, JsValue, Source,
 };
-use boa_engine::object::builtins::JsArray;
-use boa_engine::value::Numeric;
 use boa_gc::{Finalize, Trace};
 use boa_runtime::Console;
 
@@ -24,7 +24,7 @@ impl JsApp {
     fn elapsed_seconds(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         if let Some(object) = this.as_object() {
             if let Some(app) = object.downcast_ref::<JsApp>() {
-                return Ok(JsValue::from(Numeric::from(app.elapsed_seconds)))
+                return Ok(JsValue::from(Numeric::from(app.elapsed_seconds)));
             }
         }
         Err(JsNativeError::typ()
@@ -38,7 +38,7 @@ impl JsApp {
                 let array = JsArray::new(ctx);
                 array.push(JsValue::from(app.mouse.0), ctx)?;
                 array.push(JsValue::from(app.mouse.1), ctx)?;
-                return Ok(JsValue::from(array))
+                return Ok(JsValue::from(array));
             }
         }
         Err(JsNativeError::typ()
@@ -52,7 +52,7 @@ impl JsApp {
                 let array = JsArray::new(ctx);
                 array.push(JsValue::from(app.window_rect.0), ctx)?;
                 array.push(JsValue::from(app.window_rect.1), ctx)?;
-                return Ok(JsValue::from(array))
+                return Ok(JsValue::from(array));
             }
         }
         Err(JsNativeError::typ()

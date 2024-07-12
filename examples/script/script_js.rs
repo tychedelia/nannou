@@ -21,9 +21,7 @@ fn model(app: &App) -> Model {
         .view(view) // The function that will be called for presenting graphics to a frame.
         .build();
 
-    Model {
-        radius: 40f32,
-    }
+    Model { radius: 40f32 }
 }
 
 // Draw the state of your `Model` into the given `Frame` here.
@@ -32,7 +30,5 @@ fn view(app: &App, model: &Model) {
 
     draw.background().color(BLACK);
 
-    draw.ellipse()
-        .x_y(100.0, 100.0)
-        .radius(model.radius);
+    draw.ellipse().x_y(100.0, 100.0).radius(model.radius);
 }

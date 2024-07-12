@@ -1,6 +1,7 @@
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
+use crate::app::JsApp;
 use anyhow::{anyhow, Context as AnyhowContext};
 use bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy::prelude::*;
@@ -19,17 +20,16 @@ use boa_engine::{
 };
 use boa_gc::{Finalize, Trace};
 use boa_runtime::Console;
-use crate::app::JsApp;
 
 use crate::asset::{Script, ScriptAssetPlugin};
 
-mod asset;
 mod app;
+mod asset;
 
 pub mod prelude {
+    pub use crate::app::JsApp;
     pub use crate::asset::Script;
     pub use crate::run_script;
-    pub use crate::app::JsApp;
     pub use crate::RegisterScriptTypeExt;
     pub use crate::UpdateScript;
     pub use crate::UpdateScriptAssetLocation;
@@ -62,7 +62,9 @@ macro_rules! register_numeric_type {
             $type_registry,
             |v| JsValue::from(*v.downcast_ref::<$type>().expect("Unable to downcast")),
             |v, ctx| {
-                let numeric = v.to_numeric(ctx).expect("Could not convert value to numeric");
+                let numeric = v
+                    .to_numeric(ctx)
+                    .expect("Could not convert value to numeric");
                 match numeric {
                     boa_engine::value::Numeric::Number(f) => Box::new(f as $type),
                     _ => panic!("Unsupported numeric type"),
@@ -118,8 +120,7 @@ pub struct ScriptJsPlugin;
 
 impl Plugin for ScriptJsPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .add_systems(Startup, setup)
+        app.add_systems(Startup, setup)
             .add_plugins(ScriptAssetPlugin);
     }
 
@@ -299,13 +300,15 @@ pub fn run_script(world: &mut World, js_app: JsApp, model: &mut dyn Reflect) {
             .set(JsString::from("model"), js_model, true, &mut ctx)
             .expect("Unable to set model in global object");
 
-        let prototype = ctx.realm().get_class::<JsApp>().expect("Unable to get app class");
+        let prototype = ctx
+            .realm()
+            .get_class::<JsApp>()
+            .expect("Unable to get app class");
         let js_app = JsObject::from_proto_and_data(Some(prototype.prototype()), js_app);
         ctx.global_object()
             .set(JsString::from("app"), JsValue::from(js_app), true, &mut ctx)
             .expect("Unable to set app in global object");
-        let result = ctx
-            .eval(Source::from_bytes(&script));
+        let result = ctx.eval(Source::from_bytes(&script));
         if let Ok(result) = result {
             match write_js_model(model.reflect_mut(), result, &type_registry, &mut ctx) {
                 Ok(_) => {}
@@ -316,7 +319,6 @@ pub fn run_script(world: &mut World, js_app: JsApp, model: &mut dyn Reflect) {
         } else {
             error!("Error running update script: {:?}", result);
         };
-
     }
     world.insert_non_send_resource(ctx);
 }

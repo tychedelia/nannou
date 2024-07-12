@@ -54,7 +54,7 @@ use crate::prelude::bevy_asset::io::AssetSource;
 use crate::prelude::bevy_ecs::system::SystemState;
 use crate::prelude::bevy_render::extract_resource::extract_resource;
 use crate::prelude::render::{NannouMesh, NannouPersistentMesh};
-use crate::prelude::{NannouMaterialPlugin};
+use crate::prelude::NannouMaterialPlugin;
 use crate::render::RenderApp;
 use crate::window::WindowUserFunctions;
 use crate::{camera, geom, light, window};
@@ -431,11 +431,16 @@ where
 
     #[cfg(feature = "script_js")]
     pub fn update_script(mut self, script_asset: &'static str) -> Self {
-        self.app.insert_resource(bevy_nannou::prelude::UpdateScriptAssetLocation(script_asset.to_string()));
+        self.app
+            .insert_resource(bevy_nannou::prelude::UpdateScriptAssetLocation(
+                script_asset.to_string(),
+            ));
         self.update_script = Some(|app, model| {
             let world = app.world_mut();
             if !world.contains_resource::<bevy_nannou::prelude::UpdateScript>() {
-                let script_asset = world.get_resource::<bevy_nannou::prelude::UpdateScriptAssetLocation>().unwrap();
+                let script_asset = world
+                    .get_resource::<bevy_nannou::prelude::UpdateScriptAssetLocation>()
+                    .unwrap();
                 let script = world.load_asset(&script_asset.0);
                 world.insert_resource(bevy_nannou::prelude::UpdateScript(script));
             }
@@ -899,10 +904,7 @@ impl<'w> App<'w> {
             None => self.window_id(),
         };
 
-        let draw = self
-            .world_mut()
-            .entity(window_id)
-            .get::<DrawHolder>();
+        let draw = self.world_mut().entity(window_id).get::<DrawHolder>();
         draw.unwrap().0.clone()
     }
 

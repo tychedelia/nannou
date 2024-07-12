@@ -19,10 +19,10 @@ pub mod prelude {
 
     #[cfg(feature = "isf")]
     pub use bevy_nannou_isf::prelude::*;
-    #[cfg(feature = "video")]
-    pub use bevy_nannou_video::prelude::*;
     #[cfg(feature = "script_js")]
     pub use bevy_nannou_script_js::prelude::*;
+    #[cfg(feature = "video")]
+    pub use bevy_nannou_video::prelude::*;
 }
 
 pub struct NannouPlugin;
