@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use bevy::reflect;
 use bevy::reflect::{GetTypeRegistration, ReflectMut, ReflectRef, TypeRegistry};
 use boa_engine::object::builtins::{JsArray, JsMap};
-use boa_engine::object::Object;
+use boa_engine::object::{Object, ObjectInitializer};
 use boa_engine::value::TryFromJs;
 use boa_engine::{
     class::{Class, ClassBuilder},
@@ -206,16 +206,22 @@ pub fn reflect_to_js_model(
 ) -> JsValue {
     match model.reflect_ref() {
         ReflectRef::Struct(s) => {
-            let js_map = JsMap::new(ctx);
-            for (idx, field) in s.iter_fields().enumerate() {
-                let name = s.name_at(idx).expect("Unable to get name of field");
-                let name = JsValue::from(JsString::from(name));
-                let value = reflect_to_js_model(field, type_registry, ctx);
-                js_map
-                    .set(name, value, ctx)
-                    .expect("Unable to set value in map");
+            let pairs = (0..s.field_len())
+                .map(|idx| {
+                    let name = s.name_at(idx).expect("Unable to get field name");
+                    let name = JsString::from(name);
+                    let field = s.field_at(idx).expect("Unable to get field");
+                    let value = reflect_to_js_model(field, type_registry, ctx);
+                    (name, value)
+                })
+                .collect::<Vec<_>>();
+
+            let mut js_obj = ObjectInitializer::new(ctx);
+            for ((name, value)) in pairs.into_iter() {
+                js_obj
+                    .property(name, value, Attribute::all());
             }
-            JsValue::from(js_map)
+            JsValue::from(js_obj.build())
         }
         ReflectRef::Value(v) => {
             if let Some(into_js) = type_registry.get_type_data::<ReflectIntoJsFn>(Any::type_id(v)) {
@@ -239,8 +245,6 @@ fn write_js_model(
 ) -> anyhow::Result<()> {
     match js_value {
         JsValue::Object(obj) => {
-            let js_map = JsMap::from_object(obj)
-                .map_err(|e| anyhow!("Could not read js map from object return from update"))?;
             match model {
                 ReflectMut::Struct(s) => {
                     let field_data: Vec<(String, JsValue, TypeId)> = (0..s.field_len())
@@ -250,7 +254,7 @@ fn write_js_model(
                                 .expect("Unable to get field name")
                                 .to_string();
                             let js_name = JsString::from(name.as_str());
-                            let value = js_map
+                            let value = obj
                                 .get(js_name, ctx)
                                 .map_err(|e| anyhow!("Could not read field from js map"))
                                 .expect("Could not read field from js map");
@@ -338,8 +342,6 @@ mod tests {
         register_type!(i16, &mut type_registry);
         register_type!(i32, &mut type_registry);
         register_type!(i64, &mut type_registry);
-        // register_type!(f32, &mut type_registry);
-        // register_type!(f64, &mut type_registry);
         register_type!(bool, &mut type_registry);
     }
 }
