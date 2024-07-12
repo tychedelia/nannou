@@ -24,14 +24,18 @@ pub use self::app::App;
 
 pub mod app;
 mod camera;
+mod frame;
 pub mod geom;
 pub mod image;
 pub mod io;
 mod light;
 pub mod noise;
 pub mod prelude;
+mod render;
 pub mod time;
 mod window;
+
+pub use bevy_nannou::prelude::Draw;
 
 /// Begin building the `App`.
 ///

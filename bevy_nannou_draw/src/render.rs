@@ -25,9 +25,9 @@ use crate::draw::render::{RenderContext, RenderPrimitive};
 use crate::draw::{DrawCommand, DrawContext};
 use crate::DrawHolder;
 
-pub struct NannouRenderPlugin;
+pub struct NannouDrawRenderPlugin;
 
-impl Plugin for NannouRenderPlugin {
+impl Plugin for NannouDrawRenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_default_texture)
             .add_plugins((

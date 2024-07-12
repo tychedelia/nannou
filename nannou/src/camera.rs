@@ -207,6 +207,29 @@ impl<'a, 'w> Builder<'a, 'w> {
         }
         entity
     }
+
+    pub fn build_with<C: bevy::prelude::Component>(self, component: C) -> Entity {
+        let entity = self
+            .app
+            .world_mut()
+            .spawn((self.camera, NannouCamera, component))
+            .id();
+        if let Some(layer) = self.layer {
+            self.app.world_mut().entity_mut(entity).insert(layer);
+        } else {
+            self.app
+                .world_mut()
+                .entity_mut(entity)
+                .insert(RenderLayers::default());
+        }
+        if let Some(bloom_settings) = self.bloom_settings {
+            self.app
+                .world_mut()
+                .entity_mut(entity)
+                .insert(bloom_settings);
+        }
+        entity
+    }
 }
 
 impl<'a, 'w> SetCamera for Builder<'a, 'w> {

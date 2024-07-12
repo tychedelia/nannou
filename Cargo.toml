@@ -3,6 +3,7 @@ members = [
     "bevy_nannou",
     "bevy_nannou_draw",
     "bevy_nannou_isf",
+    "bevy_nannou_script_js",
     "bevy_nannou_video",
     "examples",
     "generative_design",

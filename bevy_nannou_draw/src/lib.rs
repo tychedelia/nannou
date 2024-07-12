@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-use crate::render::NannouRenderPlugin;
+use crate::render::NannouDrawRenderPlugin;
 
 pub mod color;
 pub mod draw;
@@ -13,7 +13,7 @@ pub struct NannouDrawPlugin;
 
 impl Plugin for NannouDrawPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(NannouRenderPlugin)
+        app.add_plugins(NannouDrawRenderPlugin)
             .add_systems(First, (spawn_draw, reset_draw).chain());
     }
 }

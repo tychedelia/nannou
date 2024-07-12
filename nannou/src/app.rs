@@ -31,6 +31,8 @@ use bevy::reflect::{
     ApplyError, DynamicTypePath, GetTypeRegistration, ReflectMut, ReflectOwned, ReflectRef,
     TypeInfo,
 };
+use bevy::render;
+use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
 use bevy::window::{ExitCondition, PrimaryWindow, WindowClosed, WindowFocused, WindowResized};
 use bevy::winit::{UpdateMode, WinitEvent, WinitSettings};
 #[cfg(feature = "egui")]
@@ -47,10 +49,13 @@ use bevy_nannou::prelude::render::ExtendedNannouMaterial;
 use bevy_nannou::prelude::{draw, DrawHolder};
 use bevy_nannou::NannouPlugin;
 
+use crate::frame::Frame;
 use crate::prelude::bevy_asset::io::AssetSource;
 use crate::prelude::bevy_ecs::system::SystemState;
+use crate::prelude::bevy_render::extract_resource::extract_resource;
 use crate::prelude::render::{NannouMesh, NannouPersistentMesh};
-use crate::prelude::NannouMaterialPlugin;
+use crate::prelude::{NannouMaterialPlugin};
+use crate::render::RenderApp;
 use crate::window::WindowUserFunctions;
 use crate::{camera, geom, light, window};
 
@@ -71,6 +76,10 @@ pub type SketchViewFn = fn(&App);
 
 /// The user function type allowing them to consume the `model` when the application exits.
 pub type ExitFn<Model> = fn(&App, Model);
+
+pub type RenderFn<Model> = fn(&RenderApp, &Model, Frame);
+
+pub type UpdateScriptFn<Model> = fn(&App, &mut Model);
 
 /// The **App**'s view function.
 enum View<Model = ()> {
@@ -96,8 +105,10 @@ pub struct Builder<M = (), E = WinitEvent> {
     config: Config,
     event: Option<EventFn<M, E>>,
     update: Option<UpdateFn<M>>,
+    update_script: Option<UpdateScriptFn<M>>,
     default_view: Option<View<M>>,
     exit: Option<ExitFn<M>>,
+    render: Option<RenderFn<M>>,
 }
 
 /// A nannou `Sketch` builder.
@@ -146,6 +157,9 @@ struct EventFnRes<M, E>(Option<EventFn<M, E>>);
 struct UpdateFnRes<M>(Option<UpdateFn<M>>);
 
 #[derive(Resource, Deref, DerefMut)]
+struct UpdateScriptFnRes<M>(Option<UpdateScriptFn<M>>);
+
+#[derive(Resource, Deref, DerefMut)]
 struct ViewFnRes<M>(Option<View<M>>);
 
 #[derive(Resource, Deref, DerefMut)]
@@ -161,6 +175,17 @@ struct Config {
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct ModelHolder<M>(pub M);
+
+impl<M> ExtractResource for ModelHolder<M>
+where
+    M: Clone + Send + Sync + 'static,
+{
+    type Source = Self;
+
+    fn extract_resource(source: &Self::Source) -> Self {
+        ModelHolder(source.0.clone())
+    }
+}
 
 #[derive(Resource)]
 struct CreateDefaultWindow;
@@ -220,8 +245,10 @@ where
             config: Config::default(),
             event: None,
             update: None,
+            update_script: None,
             default_view: None,
             exit: None,
+            render: None,
         }
     }
 }
@@ -282,6 +309,17 @@ where
     /// necessary.
     pub fn exit(mut self, exit: ExitFn<M>) -> Self {
         self.exit = Some(exit);
+        self
+    }
+
+    pub fn render(mut self, render: RenderFn<M>) -> Self
+    where
+        M: Clone,
+    {
+        if let Some(render_app) = self.app.get_sub_app_mut(render::RenderApp) {
+            render_app.add_systems(ExtractSchedule, extract_resource::<ModelHolder<M>>);
+        }
+        self.render = Some(render);
         self
     }
 
@@ -350,6 +388,7 @@ where
             .insert_resource(ModelFnRes(self.model))
             .insert_resource(EventFnRes(self.event))
             .insert_resource(UpdateFnRes(self.update))
+            .insert_resource(UpdateScriptFnRes(self.update_script))
             .insert_resource(ViewFnRes(self.default_view))
             .insert_resource(ExitFnRes(self.exit))
             .add_systems(Startup, startup::<M>)
@@ -387,6 +426,26 @@ where
     pub fn model_ui(mut self) -> Self {
         self.app
             .add_plugins((ResourceInspectorPlugin::<ModelHolder<M>>::default(),));
+        self
+    }
+
+    #[cfg(feature = "script_js")]
+    pub fn update_script(mut self, script_asset: &'static str) -> Self {
+        self.app.insert_resource(bevy_nannou::prelude::UpdateScriptAssetLocation(script_asset.to_string()));
+        self.update_script = Some(|app, model| {
+            let world = app.world_mut();
+            if !world.contains_resource::<bevy_nannou::prelude::UpdateScript>() {
+                let script_asset = world.get_resource::<bevy_nannou::prelude::UpdateScriptAssetLocation>().unwrap();
+                let script = world.load_asset(&script_asset.0);
+                world.insert_resource(bevy_nannou::prelude::UpdateScript(script));
+            }
+            let js_app = bevy_nannou::prelude::JsApp {
+                elapsed_seconds: app.elapsed_seconds(),
+                mouse: (0.0, 0.0),
+                window_rect: (0.0, 0.0),
+            };
+            bevy_nannou::prelude::run_script(app.world_mut(), js_app, model.as_reflect_mut());
+        });
         self
     }
 }
@@ -434,7 +493,7 @@ impl Default for Config {
 
 impl<M> GetTypeRegistration for ModelHolder<M>
 where
-    M: GetTypeRegistration,
+    M: GetTypeRegistration + Send + Sync + 'static,
 {
     fn get_type_registration() -> bevy::reflect::TypeRegistration {
         M::get_type_registration()
@@ -443,7 +502,7 @@ where
 
 impl<M> DynamicTypePath for ModelHolder<M>
 where
-    M: DynamicTypePath,
+    M: DynamicTypePath + Send + Sync + 'static,
 {
     fn reflect_type_path(&self) -> &str {
         self.0.reflect_type_path()
@@ -468,7 +527,7 @@ where
 
 impl<M> Reflect for ModelHolder<M>
 where
-    M: Reflect + DynamicTypePath + Any + GetTypeRegistration + 'static,
+    M: Reflect + DynamicTypePath + Any + GetTypeRegistration + Send + Sync + 'static,
 {
     fn get_represented_type_info(&self) -> Option<&'static TypeInfo> {
         self.0.get_represented_type_info()
@@ -835,9 +894,14 @@ impl<'w> App<'w> {
 
     /// Produce the [App]'s [DrawHolder] API for drawing geometry and text with colors and textures.
     pub fn draw(&self) -> draw::Draw {
+        let window_id = match self.current_view {
+            Some(window_id) => window_id,
+            None => self.window_id(),
+        };
+
         let draw = self
             .world_mut()
-            .entity(self.window_id())
+            .entity(window_id)
             .get::<DrawHolder>();
         draw.unwrap().0.clone()
     }
@@ -973,6 +1037,7 @@ fn update<M>(
     world: &mut World,
     state: &mut SystemState<(
         Res<UpdateFnRes<M>>,
+        Res<UpdateScriptFnRes<M>>,
         Res<ViewFnRes<M>>,
         ResMut<ModelHolder<M>>,
         Res<RunMode>,
@@ -983,8 +1048,10 @@ fn update<M>(
 ) where
     M: 'static + Send + Sync,
 {
-    let (mut app, (update_fn, view_fn, mut model, run_mode, time, mut ticks, windows)) =
-        get_app_and_state(world, state);
+    let (
+        mut app,
+        (update_fn, update_script_fn, view_fn, mut model, run_mode, time, mut ticks, windows),
+    ) = get_app_and_state(world, state);
 
     match *run_mode {
         RunMode::UntilExit => {
@@ -1007,6 +1074,9 @@ fn update<M>(
     // Run the model update function.
     if let Some(update_fn) = update_fn.0 {
         update_fn(&app, &mut model);
+    }
+    if let Some(update_script_fn) = update_script_fn.0 {
+        update_script_fn(&app, &mut model);
     }
 
     // Run the view function for each window's draw.

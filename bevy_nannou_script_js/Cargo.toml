@@ -1,0 +1,12 @@
+[package]
+name = "bevy_nannou_script_js"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { workspace = true }
+boa_engine = "0.19"
+boa_gc = "0.19"
+boa_runtime = "0.19"
+thiserror = "1"
+anyhow = "1"
