@@ -5147,6 +5147,7 @@ dependencies = [
  "toml 0.5.11",
  "walkdir",
  "web-sys",
+ "wgpu",
 ]
 
 [[package]]

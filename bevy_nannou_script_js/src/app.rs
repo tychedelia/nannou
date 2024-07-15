@@ -1,30 +1,27 @@
-use bevy::prelude::info;
-// NOTE: this example requires the `console` feature to run correctly.
-use boa_engine::object::builtins::JsArray;
-use boa_engine::value::Numeric;
 use boa_engine::{
     class::{Class, ClassBuilder},
+    Context,
     error::JsNativeError,
-    js_string,
-    native_function::NativeFunction,
-    property::Attribute,
-    Context, JsArgs, JsData, JsResult, JsString, JsValue, Source,
+    js_string
+    ,
+    JsData, JsResult, JsValue, native_function::NativeFunction,
 };
+use boa_engine::object::builtins::JsArray;
+use boa_engine::value::Numeric;
 use boa_gc::{Finalize, Trace};
-use boa_runtime::Console;
 
 #[derive(Debug, Trace, Finalize, JsData)]
 pub struct JsApp {
-    pub elapsed_seconds: f32,
+    pub time: f32,
     pub mouse: (f32, f32),
     pub window_rect: (f32, f32),
 }
 
 impl JsApp {
-    fn elapsed_seconds(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+    fn time(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         if let Some(object) = this.as_object() {
             if let Some(app) = object.downcast_ref::<JsApp>() {
-                return Ok(JsValue::from(Numeric::from(app.elapsed_seconds)));
+                return Ok(JsValue::from(Numeric::from(app.time)));
             }
         }
         Err(JsNativeError::typ()
@@ -77,9 +74,9 @@ impl Class for JsApp {
 
     fn init(class: &mut ClassBuilder<'_>) -> JsResult<()> {
         class.method(
-            js_string!("elapsedSeconds"),
+            js_string!("time"),
             0,
-            NativeFunction::from_fn_ptr(Self::elapsed_seconds),
+            NativeFunction::from_fn_ptr(Self::time),
         );
         class.method(
             js_string!("mouse"),

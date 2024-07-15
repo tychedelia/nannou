@@ -237,7 +237,7 @@ where
             bevy_egui::EguiPlugin,
             NannouPlugin,
         ))
-        .init_resource::<RunMode>();
+            .init_resource::<RunMode>();
 
         Builder {
             app,
@@ -445,7 +445,7 @@ where
                 world.insert_resource(bevy_nannou::prelude::UpdateScript(script));
             }
             let js_app = bevy_nannou::prelude::JsApp {
-                elapsed_seconds: app.elapsed_seconds(),
+                time: app.time(),
                 mouse: (0.0, 0.0),
                 window_rect: (0.0, 0.0),
             };
@@ -695,16 +695,16 @@ impl<'w> App<'w> {
         keyboard_input
     }
 
-    /// Get the [`Time`] resource.
-    pub fn time(&self) -> Time {
-        let time = self.world().get_resource::<Time>().unwrap();
-        *time
-    }
-
     /// Get the time since the app started.
-    pub fn elapsed_seconds(&self) -> f32 {
+    pub fn time(&self) -> f32 {
         let time = self.world().get_resource::<Time>().unwrap();
         time.elapsed_seconds()
+    }
+
+    /// Get the time since the last frame.
+    pub fn time_delta(&self) -> f32 {
+        let time = self.world().get_resource::<Time>().unwrap();
+        time.delta_seconds()
     }
 
     // Create a new `App`.

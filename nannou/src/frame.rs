@@ -2,12 +2,10 @@ use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::*;
 use bevy::render::render_resource::*;
 use bevy::render::renderer::{RenderContext, RenderDevice};
-use bevy::render::texture::ColorAttachment;
 use bevy::render::view::{ExtractedView, ExtractedWindows, ViewTarget};
 use bevy::render::{Extract, RenderApp};
 use nannou_core::geom;
-use std::cell::{RefCell, RefMut};
-use std::rc::Rc;
+use std::ops::Deref;
 
 pub struct FramePlugin;
 
@@ -134,7 +132,7 @@ impl<'w> Frame<'w> {
     /// function returns, this texture will be resolved to a non-multisampled linear sRGBA texture.
     /// After the texture has been resolved if necessary, it will then be used as a shader input
     /// within a graphics pipeline used to draw the swapchain texture.
-    pub fn texture(&self) -> &Texture {
+    pub fn texture(&self) -> &wgpu::Texture {
         self.view_target.main_texture()
     }
 
@@ -146,8 +144,9 @@ impl<'w> Frame<'w> {
     }
 
     /// Returns the resolve target texture in the case that MSAA is enabled.
-    pub fn resolve_target(&self) -> Option<&TextureView> {
+    pub fn resolve_target(&self) -> Option<&wgpu::TextureView> {
         self.view_target.sampled_main_texture_view()
+            .map(|tv| tv.deref())
     }
 
     /// The color format of the `Frame`'s intermediary linear sRGBA texture (equal to

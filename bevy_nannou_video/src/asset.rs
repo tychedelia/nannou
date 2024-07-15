@@ -30,7 +30,7 @@ fn load_next_frame(
     time: Res<Time>,
 ) {
     for (_, video) in videos.iter_mut() {
-        let current_time = time.elapsed_seconds_f64();
+        let current_time = time.time_f64();
         if current_time - video.last_update < video.frame_duration {
             continue; // Not time for next frame yet
         }

@@ -1,5 +1,5 @@
 function update(app, model) {
-    let t = app.elapsedSeconds()
-    model.radius = model.radius + t
+    let t = app.time()
+    model.radius = t * 10.0;
     return model
 }

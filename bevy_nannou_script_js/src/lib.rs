@@ -177,7 +177,9 @@ impl WorldHolder {
         unsafe { &*self.0 }
     }
 
-    fn world_mut(&mut self) -> &mut World {
+    fn world_mut(&self) -> &mut World {
+        /// SAFETY: I promise that I will not use this method to create multiple mutable references
+        /// to the world or items in the world at the same time.
         unsafe { &mut *self.0 }
     }
 }
