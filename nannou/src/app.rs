@@ -31,8 +31,10 @@ use bevy::reflect::{
     ApplyError, DynamicTypePath, GetTypeRegistration, ReflectMut, ReflectOwned, ReflectRef,
     TypeInfo,
 };
+use bevy::render::extract_component::ExtractComponent;
 use bevy::render::extract_resource::{extract_resource, ExtractResource};
 use bevy::render::render_graph::ViewNodeRunner;
+use bevy::render::render_resource::{AsBindGroup, BindGroup};
 use bevy::window::{ExitCondition, PrimaryWindow, WindowClosed, WindowFocused, WindowResized};
 use bevy::winit::{UpdateMode, WinitEvent, WinitSettings};
 #[cfg(feature = "egui")]
@@ -44,22 +46,28 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 #[cfg(feature = "egui")]
 use bevy_inspector_egui::DefaultInspectorConfigPlugin;
 use find_folder;
-
-use bevy_nannou::prelude::render::ExtendedNannouMaterial;
-use bevy_nannou::prelude::{draw, DrawHolder};
+use wgpu::naga::ShaderStage::Compute;
+use bevy_nannou::prelude::render::{ExtendedNannouMaterial, NannouCamera};
+use bevy_nannou::prelude::{draw, DrawHolder, ShaderRef};
 use bevy_nannou::NannouPlugin;
 
 use crate::frame::{Frame, FramePlugin};
 use crate::prelude::bevy_ecs::system::SystemState;
-use crate::prelude::bevy_render::extract_component::ExtractComponentPlugin;
 use crate::prelude::render::NannouMesh;
 use crate::prelude::NannouMaterialPlugin;
-use crate::render::{NannouRenderNode, RenderApp, RenderPlugin};
+use crate::render::{
+    ComputeModel, ComputePlugin, ComputeShader, ComputeShaderHandle, ComputeState,
+    NannouRenderNode, RenderApp, RenderPlugin,
+};
 use crate::window::WindowUserFunctions;
 use crate::{camera, geom, light, window};
 
 /// The user function type for initialising their model.
 pub type ModelFn<Model> = fn(&App) -> Model;
+
+/// The user function type for producing the compute model post-update.
+pub type ComputeUpdateFn<Model, ComputeModel: ComputeShader> =
+    fn(&App, &Model, &mut ComputeModel::State, Entity) -> ComputeModel;
 
 /// The user function type for updating their model in accordance with some event.
 pub type EventFn<Model, Event> = fn(&App, &mut Model, &Event);
@@ -153,6 +161,9 @@ struct EventFnRes<M, E>(Option<EventFn<M, E>>);
 
 #[derive(Resource, Deref, DerefMut)]
 struct UpdateFnRes<M>(Option<UpdateFn<M>>);
+
+#[derive(Resource, Deref, DerefMut)]
+struct ComputeUpdateFnRes<M, CM: ComputeShader>(ComputeUpdateFn<M, CM>);
 
 #[derive(Resource, Deref, DerefMut)]
 pub(crate) struct RenderFnRes<M>(Option<RenderFn<M>>);
@@ -351,6 +362,27 @@ where
     pub fn init_fragment_shader<const SHADER: &'static str>(mut self) -> Self {
         self.app
             .add_plugins(NannouMaterialPlugin::<ExtendedNannouMaterial<"", SHADER>>::default());
+        self
+    }
+
+    pub fn compute<CM: ComputeShader>(mut self, compute_fn: ComputeUpdateFn<M, CM>) -> Self {
+        let render_app = self.app.sub_app_mut(bevy::render::RenderApp);
+        render_app.insert_resource(ComputeShaderHandle(CM::compute_shader()));
+        self.app
+            .add_systems(
+                First,
+                |mut commands: Commands, views_q: Query<Entity, Added<NannouCamera>>| {
+                    for view in views_q.iter() {
+                        info!("Adding compute state to view {:?}", view);
+                        commands
+                            .entity(view)
+                            .insert(ComputeState(CM::State::default()));
+                    }
+                },
+            )
+            .insert_resource(ComputeUpdateFnRes(compute_fn))
+            .add_systems(Update, compute::<M, CM>.after(update::<M>))
+            .add_plugins(ComputePlugin::<CM>::default());
         self
     }
 
@@ -1095,6 +1127,29 @@ fn update<M>(
 
     // Increment the frame count.
     *ticks += 1;
+}
+
+fn compute<M, CM>(
+    world: &mut World,
+    state: &mut SystemState<(
+        Commands,
+        ResMut<ModelHolder<M>>,
+        Res<ComputeUpdateFnRes<M, CM>>,
+        Query<(Entity, &mut ComputeState<CM::State>)>,
+    )>,
+)
+where
+    M: 'static + Send + Sync,
+    CM: ComputeShader
+{
+    let (mut app, (mut commands, mut model, compute, mut views_q)) = get_app_and_state(world, state);
+    let compute = compute.0;
+    for (view, mut state) in views_q.iter_mut() {
+        let compute_model = compute(&app, &model, &mut state.0, view);
+        info!("Updating compute model for view {:?}", view);
+        let id = commands.spawn(ComputeModel(compute_model)).id();
+        info!("Spawned compute model with id {:?}", id);
+    }
 }
 
 fn events<M, E>(
