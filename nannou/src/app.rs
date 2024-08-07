@@ -54,7 +54,7 @@ use wgpu::naga::ShaderStage::Compute;
 use crate::frame::{Frame, FramePlugin};
 use crate::prelude::bevy_ecs::system::SystemState;
 use crate::prelude::render::NannouMesh;
-use crate::prelude::{ComputePipelineState, NannouMaterialPlugin};
+use crate::prelude::NannouMaterialPlugin;
 use crate::render::{
     ComputeModel, ComputePlugin, ComputeShader, ComputeShaderHandle, ComputeState,
     NannouRenderNode, RenderApp, RenderPlugin,
@@ -67,7 +67,12 @@ pub type ModelFn<Model> = fn(&App) -> Model;
 
 /// The user function type for producing the compute model post-update.
 pub type ComputeUpdateFn<Model, ComputeModel> =
-    fn(&App, &Model, &mut <ComputeModel as ComputeShader>::State, Entity) -> ComputeModel;
+    fn(
+        &App,
+        &Model,
+        <ComputeModel as ComputeShader>::State,
+        Entity,
+    ) -> (<ComputeModel as ComputeShader>::State, ComputeModel);
 
 /// The user function type for updating their model in accordance with some event.
 pub type EventFn<Model, Event> = fn(&App, &mut Model, &Event);
@@ -374,9 +379,10 @@ where
                 |mut commands: Commands, views_q: Query<Entity, Added<NannouCamera>>| {
                     for view in views_q.iter() {
                         info!("Adding compute state to view {:?}", view);
-                        commands
-                            .entity(view)
-                            .insert(ComputeState(CM::State::default()));
+                        commands.entity(view).insert(ComputeState {
+                            current: CM::State::default(),
+                            next: None,
+                        });
                     }
                 },
             )
@@ -1135,33 +1141,29 @@ fn compute<M, CM>(
     state: &mut SystemState<(
         ResMut<ModelHolder<M>>,
         Res<ComputeUpdateFnRes<M, CM>>,
-        ResMut<ComputePipelineState>,
         Query<(Entity, &mut ComputeState<CM::State>)>,
-        Query<&ComputeModel<CM>>,
     )>,
 ) where
     M: 'static + Send + Sync,
     CM: ComputeShader,
 {
-    let (mut app, (mut model, compute, mut pipeline_state, mut views_q, query)) =
-        get_app_and_state(world, state);
+    let (mut app, (mut model, compute, mut views_q)) = get_app_and_state(world, state);
     let compute = compute.0;
     for (view, mut state) in views_q.iter_mut() {
-        if !pipeline_state
-            .entry(view)
-            .or_insert_with(|| Arc::new(AtomicBool::new(true)))
-            .load(Ordering::SeqCst)
-        {
-            info!("Skipping compute for view {:?} {:?}", view, CM::shader_entry(&state.0));
-            continue;
-        }
-
-        let compute_model = compute(&app, &model, &mut state.0, view);
+        let (new_state, compute_model) = compute(&app, &model, state.current.clone(), view);
         unsafe {
             app.component_world
                 .borrow_mut()
                 .world_mut()
                 .entity_mut(view)
+                .insert(ComputeState {
+                    current: state.current.clone(),
+                    next: if new_state != state.current {
+                        Some(new_state)
+                    } else {
+                        None
+                    },
+                })
                 .insert(ComputeModel(compute_model));
         }
     }
