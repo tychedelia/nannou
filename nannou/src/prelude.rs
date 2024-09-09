@@ -4,7 +4,7 @@ pub use bevy::asset as bevy_asset;
 pub use bevy::ecs as bevy_ecs;
 pub use bevy::reflect as bevy_reflect;
 pub use bevy::render as bevy_render;
-pub use bevy::tasks::*;
+pub use bevy::tasks::prelude::*;
 #[cfg(feature = "egui")]
 pub use bevy_egui::egui;
 
@@ -13,8 +13,8 @@ pub use crate::render::*;
 pub use crate::wgpu;
 pub use crate::wgpu::util::{BufferInitDescriptor, DeviceExt};
 pub use bevy_nannou::prelude::*;
-pub use nannou_core::prelude::*;
 pub use bevy_nannou_derive::shader_model;
+pub use nannou_core::prelude::*;
 
 pub use crate::app::{self, App, RunMode, UpdateModeExt};
 pub use crate::camera::SetCamera;
