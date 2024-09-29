@@ -21,6 +21,10 @@ pub mod prelude {
     pub use bevy_nannou_draw::text::*;
     pub use bevy_nannou_draw::*;
 
+    pub use bevy_nannou_geom::geom::mesh;
+    pub use bevy_nannou_geom::geom::{Geometry, Geom};
+    pub use bevy_nannou_geom::geom::properties::*;
+
     #[cfg(feature = "isf")]
     pub use bevy_nannou_isf::prelude::*;
     #[cfg(feature = "video")]
@@ -31,7 +35,10 @@ pub struct NannouPlugin;
 
 impl Plugin for NannouPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((bevy_nannou_draw::NannouDrawPlugin,));
+        app.add_plugins((
+            bevy_nannou_draw::NannouDrawPlugin,
+            bevy_nannou_geom::NannouGeomPlugin,
+        ));
         #[cfg(feature = "isf")]
         {
             app.add_plugins(bevy_nannou_isf::NannouIsfPlugin);

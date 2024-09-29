@@ -1094,6 +1094,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_nannou_draw",
+ "bevy_nannou_geom",
  "bevy_nannou_isf",
  "bevy_nannou_video",
 ]
@@ -1122,6 +1123,14 @@ dependencies = [
  "rayon",
  "rusttype",
  "uuid 1.10.0",
+]
+
+[[package]]
+name = "bevy_nannou_geom"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_nannou_draw",
 ]
 
 [[package]]

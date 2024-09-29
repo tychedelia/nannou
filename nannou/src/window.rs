@@ -419,6 +419,7 @@ where
             .component_world_mut()
             .spawn((self.window, WindowUserFunctions(self.user_functions)))
             .id();
+        info!("Creating window {:?}", entity);
 
         if self.primary {
             let mut q = self.app.component_world_mut().query::<&PrimaryWindow>();
@@ -433,6 +434,10 @@ where
         }
 
         let layer = RenderLayers::layer(self.app.window_count());
+        self.app
+            .component_world_mut()
+            .entity_mut(entity)
+            .insert(layer.clone());
 
         if let Some(camera) = self.camera {
             // Update the camera's render target to be the window.
@@ -440,33 +445,43 @@ where
                 .app
                 .component_world_mut()
                 .query::<(&mut Camera, Option<&mut RenderLayers>)>();
+
+            let mut needs_layers = false;
             if let Ok((mut camera, layers)) = q.get_mut(&mut self.app.component_world_mut(), camera)
             {
+                info!("Setting camera render target to window {:?}", entity);
                 camera.target = RenderTarget::Window(WindowRef::Entity(entity));
                 if let None = layers {
-                    self.app
-                        .component_world_mut()
-                        .entity_mut(self.camera.unwrap())
-                        .insert(layer.clone());
+                    needs_layers = true;
                 }
             }
+
+            if needs_layers {
+                info!("Camera did not have a render layer, inserting layer {:?}", layer);
+                self.app
+                    .component_world_mut()
+                    .entity_mut(camera)
+                    .insert(layer.clone());
+            }
         } else {
-            info!("No camera provided for window, creating a default camera");
-            self.app.component_world_mut().spawn((
-                Camera3dBundle {
-                    camera: Camera {
-                        hdr: self.hdr,
-                        target: RenderTarget::Window(WindowRef::Entity(entity)),
-                        clear_color: self
-                            .clear_color
-                            .map(ClearColorConfig::Custom)
-                            .unwrap_or(ClearColorConfig::None),
-                        ..default()
-                    },
-                    transform: Transform::from_xyz(0.0, 0.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
-                    projection: OrthographicProjection::default_3d().into(),
+            info!("No camera provided for window, creating a default camera for window {:?}", entity);
+            let camera = Camera3dBundle {
+                camera: Camera {
+                    hdr: self.hdr,
+                    target: RenderTarget::Window(WindowRef::Entity(entity)),
+                    clear_color: self
+                        .clear_color
+                        .map(ClearColorConfig::Custom)
+                        .unwrap_or(ClearColorConfig::None),
                     ..default()
                 },
+                transform: Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
+                // projection: OrthographicProjection::default_3d().into(),
+                ..default()
+            };
+
+            self.app.component_world_mut().spawn((
+                camera,
                 layer.clone(),
                 NannouCamera,
             ));

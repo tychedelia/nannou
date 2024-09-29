@@ -1,45 +1,58 @@
+use nannou::prelude::mesh::cube::Cube;
 use nannou::prelude::*;
 
 fn main() {
-    nannou::sketch(view).run()
+    nannou::app(model).update(update).run()
 }
 
-fn view(app: &App) {
-    // Begin drawing
-    let draw = app.draw();
+struct Model {
+    cube: Entity,
+    camera: Entity,
+    light: Entity,
+}
 
-    // Clear the background to blue.
-    draw.background().color(CORNFLOWER_BLUE);
+fn model(app: &App) -> Model {
+    let camera = app.new_camera().build();
+    let light = app.new_light().color(WHITE).build();
+    let _window = app
+        .new_window::<Model>()
+        .primary()
+        .light(light)
+        .size(800, 800)
+        .camera(camera)
+        .build();
 
-    // Draw a purple triangle in the top left half of the window.
-    let win = app.window_rect();
-    draw.tri()
-        .points(win.bottom_left(), win.top_left(), win.top_right())
-        .color(VIOLET);
+    let cube = app.geom().cuboid();
+    Model { cube, camera, light }
+}
 
-    // Draw an ellipse to follow the mouse().
-    let t = app.time();
-    draw.ellipse()
-        .x_y(app.mouse().x * t.cos(), app.mouse().y)
-        .radius(win.w() * 0.125 * t.sin())
-        .color(RED);
+fn update(app: &App, model: &mut Model) {
+    let cube = app.geom().get::<Cube>(model.cube);
+    let camera = app.camera(model.camera);
 
-    // Draw a line!
-    draw.line()
-        .weight(10.0 + (t.sin() * 0.5 + 0.5) * 90.0)
-        .caps_round()
-        .color(PALE_GOLDENROD)
-        .points(win.top_left() * t.sin(), win.bottom_right() * t.cos());
+    // Animate Cube
+    let x = app.time().sin() * 2.0;
+    let hue = app.time() % 1.0;
+    let color = Color::hsl(hue * 360.0, 1.0, 0.5);
 
-    // Draw a quad that follows the inverse of the ellipse.
-    draw.quad()
-        .x_y(-app.mouse().x, app.mouse().y)
-        .color(DARK_GREEN)
-        .rotate(t);
+    cube.x(x)
+        .x_length(app.time().sin().abs() * 2.0)
+        .turns(Vec3::splat(app.time().sin()))
+        .base_color(color);
 
-    // Draw a rect that follows a different inverse of the ellipse.
-    draw.rect()
-        .x_y(app.mouse().y, app.mouse().x)
-        .w(app.mouse().x * 0.25)
-        .hsv(t, 1.0, 1.0);
+    // Animate Camera
+    let radius = 10.0;
+    let speed = 2.0;
+
+    let cam_x = radius * (app.time() * speed).cos();
+    let cam_z = radius * (app.time() * speed).sin();
+    let cam_y = 4.5;
+
+    camera
+        .x_y_z(cam_x, cam_y, cam_z)
+        .look_at(Vec3::ZERO, Vec3::Y);
+
+    // Animate light
+    let light = app.light(model.light);
+    light.x_y_z(cam_z, cam_x, cam_y);
 }

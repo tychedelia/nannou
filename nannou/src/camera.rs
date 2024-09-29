@@ -8,7 +8,7 @@ use bevy::render::camera;
 use bevy::render::view::RenderLayers;
 use bevy::window::WindowRef;
 use bevy_nannou::prelude::render::NannouCamera;
-use bevy_nannou::prelude::{default, ClearColorConfig, Entity, OrthographicProjection, Vec3};
+use bevy_nannou::prelude::{default, info, ClearColorConfig, Entity, OrthographicProjection, Vec3};
 
 pub struct Camera<'a, 'w> {
     entity: Entity,
@@ -52,6 +52,13 @@ pub trait SetCamera: Sized {
     fn x_y_z(self, x: f32, y: f32, z: f32) -> Self {
         self.map_camera(|mut camera| {
             camera.transform.translation = bevy::math::Vec3::new(x, y, z);
+            camera
+        })
+    }
+
+    fn look_at(self, target: Vec3, up: Vec3) -> Self {
+        self.map_camera(|mut camera| {
+            camera.transform.look_at(target, up);
             camera
         })
     }
@@ -180,7 +187,6 @@ impl<'a, 'w> Builder<'a, 'w> {
             app,
             camera: Camera3dBundle {
                 transform: Transform::from_xyz(0.0, 0.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
-                projection: OrthographicProjection::default_3d().into(),
                 ..default()
             },
             bloom_settings: None,
@@ -194,23 +200,21 @@ impl<'a, 'w> Builder<'a, 'w> {
             .component_world_mut()
             .spawn((self.camera, NannouCamera))
             .id();
+
         if let Some(layer) = self.layer {
             self.app
                 .component_world_mut()
                 .entity_mut(entity)
                 .insert(layer);
-        } else {
-            self.app
-                .component_world_mut()
-                .entity_mut(entity)
-                .insert(RenderLayers::default());
         }
+
         if let Some(bloom_settings) = self.bloom_settings {
             self.app
                 .component_world_mut()
                 .entity_mut(entity)
                 .insert(bloom_settings);
         }
+
         entity
     }
 }

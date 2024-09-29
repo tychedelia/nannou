@@ -3,6 +3,7 @@ members = [
     "bevy_nannou",
     "bevy_nannou_derive",
     "bevy_nannou_draw",
+    "bevy_nannou_geom",
     "bevy_nannou_isf",
     "bevy_nannou_video",
     "examples",

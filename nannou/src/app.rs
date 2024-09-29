@@ -48,7 +48,7 @@ use crate::render::{
 use crate::window::WindowUserFunctions;
 use crate::{camera, geom, light, window};
 use bevy_nannou::prelude::render::NannouCamera;
-use bevy_nannou::prelude::{draw, DrawHolder};
+use bevy_nannou::prelude::{draw, DrawHolder, Geom};
 use bevy_nannou::NannouPlugin;
 use find_folder;
 use std::any::Any;
@@ -60,6 +60,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{self};
+use bevy::utils::HashMap;
 
 /// The user function type for initialising their model.
 pub type ModelFn<Model> = fn(&App) -> Model;
@@ -261,6 +262,10 @@ where
             bevy_egui::EguiPlugin,
             NannouPlugin,
         ))
+        .insert_resource(AmbientLight {
+            color: Color::WHITE,
+            brightness: 1000.0,
+        })
         .init_resource::<RunMode>();
 
         Builder {
@@ -955,6 +960,18 @@ impl<'w> App<'w> {
         let world = self.component_world();
         let draw = world.entity(window).get::<DrawHolder>();
         draw.unwrap().0.clone()
+    }
+
+    pub fn geom(&self) -> Geom<'w, StandardMaterial> {
+        let window_id = match self.current_view {
+            Some(window_id) => window_id,
+            None => self.window_id(),
+        };
+        Geom::new(
+            window_id,
+            self.resource_world.clone(),
+            self.component_world.clone(),
+        )
     }
 
     /// The number of times the focused window's **view** function has been called since the start

@@ -83,6 +83,16 @@ pub trait ShaderModel:
     }
 }
 
+impl ShaderModel for StandardMaterial {
+    fn vertex_shader() -> ShaderRef {
+        <Self as ShaderModel>::vertex_shader()
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        <Self as ShaderModel>::fragment_shader()
+    }
+}
+
 pub struct NannouRenderPlugin;
 
 impl Plugin for NannouRenderPlugin {
