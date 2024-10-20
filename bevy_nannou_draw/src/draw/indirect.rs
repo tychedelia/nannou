@@ -27,6 +27,7 @@ use bevy::{
 };
 use rayon::prelude::*;
 use std::{hash::Hash, marker::PhantomData};
+use crate::render::RenderShaderModelInstances;
 
 pub struct Indirect<'a, SM>
 where
@@ -98,6 +99,9 @@ where
 #[derive(Component, ExtractComponent, Clone)]
 pub struct IndirectMesh;
 
+#[derive(Component, ExtractComponent, Clone)]
+pub struct IndirectBuffer(pub Handle<ShaderStorageBuffer>);
+
 pub struct IndirectShaderModelPlugin<SM>(PhantomData<SM>);
 
 impl<SM> Default for IndirectShaderModelPlugin<SM>
@@ -140,7 +144,7 @@ impl<P: PhaseItem, SM: ShaderModel, const I: usize> RenderCommand<P>
 {
     type Param = (
         SRes<RenderAssets<PreparedShaderModel<SM>>>,
-        SRes<ExtractedInstances<AssetId<SM>>>,
+        SRes<RenderShaderModelInstances<SM>>,
     );
     type ViewQuery = ();
     type ItemQuery = ();
@@ -156,7 +160,7 @@ impl<P: PhaseItem, SM: ShaderModel, const I: usize> RenderCommand<P>
         let models = models.into_inner();
         let instances = instances.into_inner();
 
-        let Some(asset_id) = instances.get(&item.entity()) else {
+        let Some(asset_id) = instances.get(&item.main_entity()) else {
             return RenderCommandResult::Skip;
         };
         let Some(model) = models.get(*asset_id) else {
@@ -176,13 +180,13 @@ impl<P: PhaseItem> RenderCommand<P> for DrawMeshIndirect {
         SRes<RenderAssets<GpuShaderStorageBuffer>>,
     );
     type ViewQuery = ();
-    type ItemQuery = Read<Handle<ShaderStorageBuffer>>;
+    type ItemQuery = Read<IndirectBuffer>;
 
     #[inline]
     fn render<'w>(
         item: &P,
         _view: (),
-        indirect_buffer: Option<&'w Handle<ShaderStorageBuffer>>,
+        indirect_buffer: Option<&'w IndirectBuffer>,
         (meshes, render_mesh_instances, mesh_allocator, ssbos): SystemParamItem<
             'w,
             '_,
@@ -192,7 +196,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawMeshIndirect {
     ) -> RenderCommandResult {
         let mesh_allocator = mesh_allocator.into_inner();
 
-        let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(item.entity())
+        let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(item.main_entity())
         else {
             return RenderCommandResult::Skip;
         };
@@ -202,7 +206,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawMeshIndirect {
         let Some(indirect_buffer) = indirect_buffer else {
             return RenderCommandResult::Skip;
         };
-        let Some(indirect_buffer) = ssbos.into_inner().get(indirect_buffer) else {
+        let Some(indirect_buffer) = ssbos.into_inner().get(&indirect_buffer.0) else {
             return RenderCommandResult::Skip;
         };
         let Some(vertex_buffer_slice) =

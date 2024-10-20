@@ -10,26 +10,22 @@ use bevy::{
     pbr::{RenderMeshInstances, SetMeshBindGroup, SetMeshViewBindGroup},
     prelude::*,
     render::{
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
+        extract_component::ExtractComponent,
         extract_instances::ExtractedInstances,
-        mesh::{
-            allocator::MeshAllocator, MeshVertexBufferLayoutRef, RenderMesh, RenderMeshBufferInfo,
-        },
+        mesh::{allocator::MeshAllocator, RenderMesh, RenderMeshBufferInfo},
         render_asset::{prepare_assets, RenderAssets},
         render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, PhaseItem, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewBinnedRenderPhases,
+            AddRenderCommand, PhaseItem, RenderCommand, RenderCommandResult, SetItemPipeline,
+            TrackedRenderPass,
         },
         render_resource::*,
-        renderer::RenderDevice,
         storage::GpuShaderStorageBuffer,
-        view,
-        view::{ExtractedView, VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
 };
 use rayon::prelude::*;
 use std::{hash::Hash, marker::PhantomData, ops::Range};
+use crate::render::RenderShaderModelInstances;
 
 pub struct Instanced<'a, SM>
 where
@@ -142,7 +138,7 @@ impl<P: PhaseItem, SM: ShaderModel, const I: usize> RenderCommand<P>
 {
     type Param = (
         SRes<RenderAssets<PreparedShaderModel<SM>>>,
-        SRes<ExtractedInstances<AssetId<SM>>>,
+        SRes<RenderShaderModelInstances<SM>>,
     );
     type ViewQuery = ();
     type ItemQuery = ();
@@ -158,7 +154,7 @@ impl<P: PhaseItem, SM: ShaderModel, const I: usize> RenderCommand<P>
         let models = models.into_inner();
         let instances = instances.into_inner();
 
-        let Some(asset_id) = instances.get(&item.entity()) else {
+        let Some(asset_id) = instances.get(&item.main_entity()) else {
             return RenderCommandResult::Skip;
         };
         let Some(shader_model) = models.get(*asset_id) else {
@@ -194,7 +190,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawMeshInstanced {
     ) -> RenderCommandResult {
         let mesh_allocator = mesh_allocator.into_inner();
 
-        let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(item.entity())
+        let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(item.main_entity())
         else {
             return RenderCommandResult::Skip;
         };
