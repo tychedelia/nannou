@@ -369,7 +369,6 @@ where
                 First,
                 |mut commands: Commands, views_q: Query<Entity, Added<NannouCamera>>| {
                     for view in views_q.iter() {
-                        info!("Adding compute state to view {:?}", view);
                         commands.entity(view).insert(ComputeState {
                             current: CM::State::default(),
                             next: None,

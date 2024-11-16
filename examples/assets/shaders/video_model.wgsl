@@ -11,8 +11,8 @@
 fn fragment(
     mesh: VertexOutput,
 ) -> @location(0) vec4<f32> {
-    let resolution = view.viewport.zw;
     let time = globals.time;
+    let resolution = view.viewport.zw;
     var uv = mesh.uv * resolution;
     let cp = -1.0 + 2.0 * uv / resolution;
     let cl = length(cp);

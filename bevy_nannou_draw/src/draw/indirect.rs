@@ -1,5 +1,6 @@
 //! A shader that renders a mesh multiple times in one draw call.
 
+use crate::render::RenderShaderModelInstances;
 use crate::{
     draw::{drawing::Drawing, primitive::Primitive, Draw, DrawCommand},
     render::{
@@ -27,7 +28,6 @@ use bevy::{
 };
 use rayon::prelude::*;
 use std::{hash::Hash, marker::PhantomData};
-use crate::render::RenderShaderModelInstances;
 
 pub struct Indirect<'a, SM>
 where
@@ -36,6 +36,7 @@ where
     draw: &'a Draw<SM>,
     primitive_index: Option<usize>,
     indirect_buffer: Option<Handle<ShaderStorageBuffer>>,
+    vertex_buffer: Option<Handle<ShaderStorageBuffer>>,
 }
 
 impl<'a, SM> Drop for Indirect<'a, SM>
@@ -44,7 +45,8 @@ where
 {
     fn drop(&mut self) {
         if let Some((index, ssbo)) = self.primitive_index.take().zip(self.indirect_buffer.take()) {
-            self.insert_indirect_draw_command(index, ssbo);
+            let vertex_buffer = self.vertex_buffer.take();
+            self.insert_indirect_draw_command(index, ssbo, vertex_buffer);
         }
     }
 }
@@ -57,6 +59,7 @@ where
         draw,
         primitive_index: None,
         indirect_buffer: None,
+        vertex_buffer: None,
     }
 }
 
@@ -87,12 +90,15 @@ where
         &self,
         index: usize,
         indirect_buffer: Handle<ShaderStorageBuffer>,
+        vertex_buffer: Option<Handle<ShaderStorageBuffer>>,
     ) {
         let mut state = self.draw.state.write().unwrap();
         let primitive = state.drawing.remove(&index).unwrap();
-        state
-            .draw_commands
-            .push(Some(DrawCommand::Indirect(primitive, indirect_buffer)));
+        state.draw_commands.push(Some(DrawCommand::Indirect(
+            primitive,
+            indirect_buffer,
+            vertex_buffer,
+        )));
     }
 }
 
@@ -101,6 +107,9 @@ pub struct IndirectMesh;
 
 #[derive(Component, ExtractComponent, Clone)]
 pub struct IndirectBuffer(pub Handle<ShaderStorageBuffer>);
+
+#[derive(Component, ExtractComponent, Clone)]
+pub struct IndirectVertexBuffer(pub Option<Handle<ShaderStorageBuffer>>);
 
 pub struct IndirectShaderModelPlugin<SM>(PhantomData<SM>);
 
@@ -180,13 +189,13 @@ impl<P: PhaseItem> RenderCommand<P> for DrawMeshIndirect {
         SRes<RenderAssets<GpuShaderStorageBuffer>>,
     );
     type ViewQuery = ();
-    type ItemQuery = Read<IndirectBuffer>;
+    type ItemQuery = (Read<IndirectBuffer>, Read<IndirectVertexBuffer>);
 
     #[inline]
     fn render<'w>(
         item: &P,
         _view: (),
-        indirect_buffer: Option<&'w IndirectBuffer>,
+        item_q: Option<(&'w IndirectBuffer, &'w IndirectVertexBuffer)>,
         (meshes, render_mesh_instances, mesh_allocator, ssbos): SystemParamItem<
             'w,
             '_,
@@ -195,27 +204,35 @@ impl<P: PhaseItem> RenderCommand<P> for DrawMeshIndirect {
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let mesh_allocator = mesh_allocator.into_inner();
+        let meshes = meshes.into_inner();
+        let ssbos = ssbos.into_inner();
 
         let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(item.main_entity())
         else {
             return RenderCommandResult::Skip;
         };
-        let Some(gpu_mesh) = meshes.into_inner().get(mesh_instance.mesh_asset_id) else {
+        let Some(gpu_mesh) = meshes.get(mesh_instance.mesh_asset_id) else {
             return RenderCommandResult::Skip;
         };
-        let Some(indirect_buffer) = indirect_buffer else {
+        let Some((indirect_buffer, vertex_buffer)) = item_q else {
             return RenderCommandResult::Skip;
         };
-        let Some(indirect_buffer) = ssbos.into_inner().get(&indirect_buffer.0) else {
-            return RenderCommandResult::Skip;
-        };
-        let Some(vertex_buffer_slice) =
-            mesh_allocator.mesh_vertex_slice(&mesh_instance.mesh_asset_id)
-        else {
+        let Some(indirect_buffer) = ssbos.get(&indirect_buffer.0) else {
             return RenderCommandResult::Skip;
         };
 
-        pass.set_vertex_buffer(0, vertex_buffer_slice.buffer.slice(..));
+        let vertex_buffer = match &vertex_buffer.0 {
+            Some(vertex_buffer) => match ssbos.get(vertex_buffer) {
+                Some(vertex_buffer) => vertex_buffer.buffer.slice(..),
+                None => return RenderCommandResult::Skip,
+            },
+            None => match mesh_allocator.mesh_vertex_slice(&mesh_instance.mesh_asset_id) {
+                Some(vertex_buffer_slice) => vertex_buffer_slice.buffer.slice(..),
+                None => return RenderCommandResult::Skip,
+            },
+        };
+
+        pass.set_vertex_buffer(0, vertex_buffer);
 
         match &gpu_mesh.buffer_info {
             RenderMeshBufferInfo::Indexed { index_format, .. } => {

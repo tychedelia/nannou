@@ -121,7 +121,7 @@ pub enum DrawCommand {
     /// Draw an instanced primitive
     Instanced(Primitive, Range<u32>),
     /// Draw a primitive using an indirect buffer.
-    Indirect(Primitive, Handle<ShaderStorageBuffer>),
+    Indirect(Primitive, Handle<ShaderStorageBuffer>, Option<Handle<ShaderStorageBuffer>>),
     /// A change in the rendering context occurred.
     Context(DrawContext),
     /// A change in the shader model occurred.

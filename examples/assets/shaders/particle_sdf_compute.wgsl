@@ -19,7 +19,7 @@ struct DrawIndirectArgs {
 @group(0) @binding(2) var<uniform> sphere_radius: f32;
 @group(0) @binding(3) var<uniform> scaling_factor: u32;
 @group(0) @binding(4) var<uniform> resolution: vec2<u32>;
-@group(0) @binding(5) var<storage, read_write> indirect_args: array<DrawIndirectArgs>;
+@group(0) @binding(5) var<storage, read_write> indirect_args: DrawIndirectArgs;
 
 fn sdf_sphere(point: vec3<f32>, center: vec3<f32>, radius: f32) -> f32 {
     return length(point - center) - radius;
@@ -48,7 +48,6 @@ fn raymarch(ro: vec3<f32>, rd: vec3<f32>, max_steps: u32, max_dist: f32) -> f32 
 
 fn closest_point_on_sphere(point: vec2<f32>) -> vec3<f32> {
     let aspect = f32(resolution.x) / f32(resolution.y);
-    // Adjust for the new coordinate system
     let point3d = vec3(point.x * aspect, point.y, 0.0);
     let to_sphere = normalize(point3d - sphere_center.xyz);
     let surface_point = sphere_center.xyz + to_sphere * sphere_radius;
@@ -62,7 +61,7 @@ fn update(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     /// Update our indirect params if we are thread 0
     if (global_id.x == 0u && global_id.y == 0u && global_id.z == 0u) {
-        atomicStore(&indirect_args[0].instance_count, particle_count);
+        atomicStore(&indirect_args.instance_count, particle_count);
     }
 
     let index = global_id.x;
@@ -181,7 +180,7 @@ fn init(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     /// Update our indirect params if we are thread 0
     if (global_id.x == 0u && global_id.y == 0u && global_id.z == 0u) {
-        atomicStore(&indirect_args[0].instance_count, particle_count);
+        atomicStore(&indirect_args.instance_count, particle_count);
     }
 
     let index = global_id.x;

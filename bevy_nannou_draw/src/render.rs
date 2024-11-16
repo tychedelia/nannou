@@ -1,3 +1,4 @@
+use crate::draw::indirect::{IndirectBuffer, IndirectVertexBuffer};
 use crate::{
     draw::{
         indirect::{IndirectMesh, IndirectShaderModelPlugin},
@@ -9,6 +10,7 @@ use crate::{
     DrawHolder,
 };
 use bevy::render::storage::ShaderStorageBuffer;
+use bevy::render::sync_world::{MainEntity, MainEntityHashMap, RenderEntity};
 use bevy::render::Extract;
 use bevy::{
     asset::{load_internal_asset, Asset, UntypedAssetId},
@@ -54,13 +56,11 @@ use bevy::{
 };
 use lyon::lyon_tessellation::{FillTessellator, StrokeTessellator};
 use std::{any::TypeId, hash::Hash, marker::PhantomData};
-use bevy::render::sync_world::{MainEntity, MainEntityHashMap, RenderEntity};
-use crate::draw::indirect::IndirectBuffer;
 
 pub const DEFAULT_NANNOU_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(3086880141013591);
 
 pub trait ShaderModel:
-Asset + AsBindGroup + Clone + Default + Sized + Send + Sync + 'static
+    Asset + AsBindGroup + Clone + Default + Sized + Send + Sync + 'static
 {
     /// Returns this shader model's vertex shader. If [`ShaderRef::Default`] is returned, the default mesh vertex shader
     /// will be used.
@@ -220,7 +220,7 @@ impl<SM: ShaderModel> RenderAsset for PreparedShaderModel<SM> {
 /// Sets the bind group for a given [`ShaderModel`] at the configured `I` index.
 pub struct SetShaderModelBindGroup<SM: ShaderModel, const I: usize>(PhantomData<SM>);
 impl<P: PhaseItem, SM: ShaderModel, const I: usize> RenderCommand<P>
-for SetShaderModelBindGroup<SM, I>
+    for SetShaderModelBindGroup<SM, I>
 {
     type Param = (
         SRes<RenderAssets<PreparedShaderModel<SM>>>,
@@ -324,8 +324,9 @@ impl From<&NannouShaderModel> for NannouBindGroupData {
     }
 }
 
-fn clear_shader_model_instances<SM>(mut shader_model_instances: ResMut<RenderShaderModelInstances<SM>>)
-where
+fn clear_shader_model_instances<SM>(
+    mut shader_model_instances: ResMut<RenderShaderModelInstances<SM>>,
+) where
     SM: ShaderModel,
     SM::Data: PartialEq + Eq + Hash + Clone,
 {
@@ -334,7 +335,7 @@ where
 
 fn extract_shader_models<SM>(
     mut material_instances: ResMut<RenderShaderModelInstances<SM>>,
-    query: Extract<Query<(Entity, &ViewVisibility, &ShaderModelHandle<SM>), With<ShaderModelMesh>>>,
+    query: Extract<Query<(Entity, &ViewVisibility, &ShaderModelHandle<SM>)>>,
 ) where
     SM: ShaderModel,
     SM::Data: PartialEq + Eq + Hash + Clone,
@@ -390,7 +391,8 @@ pub(crate) fn queue_shader_model<SM, QF, RC>(
             let Some(shader_model) = shader_models.get(*shader_model) else {
                 continue;
             };
-            let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(*main_entity) else {
+            let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(*main_entity)
+            else {
                 continue;
             };
             let Some(mesh) = meshes.get(mesh_instance.mesh_asset_id) else {
@@ -405,7 +407,6 @@ pub(crate) fn queue_shader_model<SM, QF, RC>(
             let pipeline = pipelines
                 .specialize(&pipeline_cache, &custom_pipeline, key, &mesh.layout)
                 .unwrap();
-
             phase.add(Transparent3d {
                 distance: draw_idx.0 as f32,
                 pipeline,
@@ -694,14 +695,15 @@ fn update_draw_mesh(
                         InstanceRange(range),
                         UntypedShaderModelId(model_id),
                         Mesh3d(mesh.clone()),
-                        SpatialBundle::INHERITED_IDENTITY,
+                        Transform::IDENTITY,
+                        Visibility::default(),
                         NannouTransient,
                         NoFrustumCulling,
                         DrawIndex(idx),
                         window_layers.clone(),
                     ));
                 }
-                DrawCommand::Indirect(prim, indirect_buffer) => {
+                DrawCommand::Indirect(prim, indirect_buffer, vertex_buffer) => {
                     // Info required during rendering.
                     let ctxt = RenderContext {
                         intermediary_mesh: &intermediary_state.intermediary_mesh,
@@ -725,9 +727,11 @@ fn update_draw_mesh(
                     commands.spawn((
                         IndirectMesh,
                         IndirectBuffer(indirect_buffer),
+                        IndirectVertexBuffer(vertex_buffer),
                         UntypedShaderModelId(model_id),
                         Mesh3d(mesh.clone()),
-                        SpatialBundle::INHERITED_IDENTITY,
+                        Transform::IDENTITY,
+                        Visibility::default(),
                         NannouTransient,
                         NoFrustumCulling,
                         DrawIndex(idx),
@@ -745,7 +749,8 @@ fn update_draw_mesh(
                         UntypedShaderModelId(model_id),
                         ShaderModelMesh,
                         Mesh3d(mesh.clone()),
-                        SpatialBundle::INHERITED_IDENTITY,
+                        Transform::IDENTITY,
+                        Visibility::default(),
                         NannouTransient,
                         NoFrustumCulling,
                         DrawIndex(idx),

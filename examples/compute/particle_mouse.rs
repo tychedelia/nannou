@@ -3,7 +3,7 @@ use nannou::prelude::bevy_render::storage::ShaderStorageBuffer;
 use nannou::prelude::*;
 use std::sync::Arc;
 
-const NUM_PARTICLES: u32 = 100000;
+const NUM_PARTICLES: u32 = 100_000;
 const WORKGROUP_SIZE: u32 = 64;
 
 fn main() {
@@ -180,6 +180,7 @@ fn view(app: &App, model: &Model) {
 }
 
 fn draw_particles_circle(draw: &Draw<ShaderModel>) {
+
     draw.instanced()
         .primitive(draw.ellipse().w_h(5.0, 5.0))
         .range(0..NUM_PARTICLES);

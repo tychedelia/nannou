@@ -25,6 +25,7 @@ use bevy::{
 };
 use rayon::prelude::*;
 use std::{hash::Hash, marker::PhantomData, ops::Range};
+use bevy::render::render_phase::DrawFunctions;
 use crate::render::RenderShaderModelInstances;
 
 pub struct Instanced<'a, SM>

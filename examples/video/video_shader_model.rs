@@ -16,7 +16,7 @@ struct Model {
 }
 
 // This struct defines the data that will be passed to your shader
-#[shader_model(fragment = "video_model.wgsl")]
+#[shader_model(fragment = "shaders/video_model.wgsl")]
 struct VideoShaderModel {
     #[texture(0)]
     #[sampler(1)]

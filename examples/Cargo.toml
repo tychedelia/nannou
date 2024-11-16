@@ -70,6 +70,9 @@ path = "compute/particle_mouse.rs"
 [[example]]
 name = "particle_sdf"
 path = "compute/particle_sdf.rs"
+[[example]]
+name = "particle_volume"
+path = "compute/vertex_pulling.rs"
 
 # Draw
 [[example]]
