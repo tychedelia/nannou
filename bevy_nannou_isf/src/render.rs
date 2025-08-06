@@ -22,7 +22,7 @@ use bevy::render::render_resource::*;
 use bevy::render::renderer::{RenderContext, RenderDevice};
 use bevy::render::texture::{DefaultImageSampler, GpuImage};
 use bevy::render::view::{ExtractedView, ViewTarget};
-use bevy::render::{Render, RenderApp, RenderSet};
+use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::window::{PrimaryWindow, WindowRef};
 use std::num::NonZero;
 
@@ -40,8 +40,8 @@ impl Plugin for IsfRenderPlugin {
             .add_systems(
                 Render,
                 (
-                    queue_isf.in_set(RenderSet::Queue),
-                    prepare_isf_bind_groups.in_set(RenderSet::PrepareBindGroups),
+                    queue_isf.in_set(RenderSystems::Queue),
+                    prepare_isf_bind_groups.in_set(RenderSystems::PrepareBindGroups),
                 ),
             )
             .init_resource::<SpecializedRenderPipelines<IsfPipeline>>()

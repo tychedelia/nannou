@@ -296,7 +296,7 @@ where
 impl<M, E> Builder<M, E>
 where
     M: 'static + Send + Sync,
-    E: Event,
+    E: BufferedEvent,
 {
     /// The default `view` function that the app will call to allow you to present your Model to
     /// the surface of a window on your display.
@@ -1015,7 +1015,7 @@ impl<'w> App<'w> {
 
     /// Quits the currently running application.
     pub fn quit(&mut self) {
-        self.resource_world_mut().send_event(AppExit::Success);
+        self.resource_world_mut().write_event(AppExit::Success);
     }
 
     pub fn set_update_mode(&self, mode: UpdateMode) {
@@ -1042,9 +1042,8 @@ fn get_app_and_state<'w, 's, S: SystemParam + 'static>(
     world: &'w mut World,
     state: &'s mut SystemState<S>,
 ) -> (App<'w>, <S as SystemParam>::Item<'w, 's>) {
-    state.update_archetypes(world);
     let app = App::new(world);
-    let param = unsafe { state.get_unchecked_manual(*app.resource_world.borrow_mut()) };
+    let param = unsafe { state.get_unchecked(*app.resource_world.borrow_mut()) };
     (app, param)
 }
 
@@ -1200,7 +1199,7 @@ fn events<M, E>(
     )>,
 ) where
     M: Send + Sync + 'static,
-    E: Event,
+    E: BufferedEvent,
 {
     let (app, (mut events, event_fn, mut model)) = get_app_and_state(world, state);
     for evt in events.read() {

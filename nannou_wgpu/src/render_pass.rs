@@ -30,6 +30,7 @@ impl<'a> ColorAttachmentDescriptorBuilder<'a> {
         ColorAttachmentDescriptorBuilder {
             descriptor: wgpu::RenderPassColorAttachment {
                 view: attachment,
+                depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: LoadOp::Clear(Color::TRANSPARENT),

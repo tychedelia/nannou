@@ -9,7 +9,6 @@ use std::{
     ops::Deref,
     path::{Path, PathBuf},
 };
-
 use crate::{App, geom::Point2, glam::Vec2, prelude::WindowResizeConstraints};
 use bevy::{
     input::mouse::MouseWheel,
@@ -26,6 +25,7 @@ use bevy::{
     window::{CursorGrabMode, PrimaryWindow, WindowLevel, WindowMode, WindowRef},
     winit::cursor::CursorIcon,
 };
+use bevy::render::view::Hdr;
 use bevy_nannou::prelude::{MonitorSelection, render::NannouCamera};
 use nannou_core::geom;
 
@@ -82,21 +82,23 @@ impl<'a, 'w> Window<'a, 'w> {
         Window { app, entity }
     }
 
-    #[allow(dead_code)]
-    fn window(&self) -> bevy_nannou::prelude::Window {
-        let world = self.app.component_world();
-        world
-            .get::<bevy::window::Window>(self.entity)
-            .unwrap()
-            .clone()
-    }
-
     fn window_mut(&self) -> RefMut<'_, bevy_nannou::prelude::Window> {
         let world = self.app.component_world_mut();
 
         RefMut::map(world, |world| {
             world
                 .get_mut::<bevy::window::Window>(self.entity)
+                .unwrap()
+                .into_inner()
+        })
+    }
+
+    pub fn cursor_options_mut(&self) -> RefMut<'_, bevy::window::CursorOptions> {
+        let world = self.app.component_world_mut();
+
+        RefMut::map(world, |world| {
+            world
+                .get_mut::<bevy::window::CursorOptions>(self.entity)
                 .unwrap()
                 .into_inner()
         })
@@ -487,7 +489,6 @@ where
             #[allow(deprecated)]
             self.app.component_world_mut().spawn((
                 Camera {
-                    hdr: self.hdr,
                     target: RenderTarget::Window(WindowRef::Entity(entity)),
                     clear_color: self
                         .clear_color
@@ -500,6 +501,13 @@ where
                 layer.clone(),
                 NannouCamera,
             ));
+        }
+
+        if self.hdr {
+            self.app
+                .component_world_mut()
+                .entity_mut(entity)
+                .insert(Hdr);
         }
 
         if let Some(light) = self.light {
@@ -909,11 +917,20 @@ impl<'a, 'w> Window<'a, 'w> {
     /// - **iOS:** Always returns an Err.
     /// - **Web:** Has no effect.
     pub fn set_cursor_grab(&self, grab: bool) {
-        self.window_mut().cursor_options.grab_mode = if grab {
+        self.cursor_options_mut().grab_mode = if grab {
             CursorGrabMode::Locked
         } else {
             CursorGrabMode::None
         };
+    }
+
+    /// Set whether or not mouse events within *this* window are captured or fall through to the Window below.
+    ///
+    /// ## Platform-specific
+    ///
+    /// - iOS / Android / Web / X11: Unsupported.
+    pub fn set_hit_test(&self, hit_test: bool) {
+        self.cursor_options_mut().hit_test = hit_test;
     }
 
     /// Set the cursor's visibility.
@@ -930,7 +947,7 @@ impl<'a, 'w> Window<'a, 'w> {
     ///
     /// This has no effect on **Android** or **iOS**.
     pub fn set_cursor_visible(&self, visible: bool) {
-        self.window_mut().cursor_options.visible = visible;
+        self.cursor_options_mut().visible = visible;
     }
 
     /// Attempts to determine whether or not the window is currently fullscreen.

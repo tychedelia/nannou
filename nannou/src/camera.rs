@@ -12,6 +12,7 @@ use bevy::{
     render::{camera, view::RenderLayers},
     window::WindowRef,
 };
+use bevy::render::view::Hdr;
 use bevy_nannou::prelude::{
     ClearColorConfig, Entity, OrthographicProjection, Vec3, default, render::NannouCamera,
 };
@@ -28,6 +29,7 @@ pub struct CameraComponents {
     pub projection: Projection,
     pub tonemapping: Tonemapping,
     pub bloom_settings: Option<Bloom>,
+    pub hdr: Option<Hdr>,
     pub render_layers: RenderLayers,
 }
 
@@ -82,7 +84,11 @@ pub trait SetCamera: Sized {
 
     fn hdr(self, hdr: bool) -> Self {
         self.map_camera(|mut camera| {
-            camera.camera.hdr = hdr;
+            if hdr {
+                camera.hdr = Some(Hdr);
+            } else {
+                camera.hdr = None;
+            }
             camera
         })
     }
@@ -268,6 +274,7 @@ impl<'a, 'w> SetCamera for Camera<'a, 'w> {
             tonemapping: tonemapping.clone(),
             render_layers: render_layers.clone(),
             bloom_settings: bloom_settings.cloned(),
+            hdr: None,
         };
         let mut camera = f(camera);
         if let Some(bloom_settings) = camera.bloom_settings.take() {

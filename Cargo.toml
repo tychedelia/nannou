@@ -29,7 +29,7 @@ repository = "https://github.com/nannou-org/nannou.git"
 
 [workspace.dependencies]
 audrey = "0.3"
-bevy = { version = "0.16", default-features = false }
+bevy = { git = "https://github.com/bevyengine/bevy", default-features = false }
 bevy_common_assets = "0.13"
 bevy_egui = "0.34"
 bevy-inspector-egui = "0.31"
@@ -72,5 +72,5 @@ usvg = "0.4"
 uuid = "1.8"
 video-rs = "0.10"
 walkdir = "2"
-wgpu = "24"
+wgpu = "26"
 wikipedia = "0.5"

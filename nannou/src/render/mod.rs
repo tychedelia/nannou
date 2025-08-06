@@ -14,7 +14,7 @@ use bevy::{
     render::{
         ExtractSchedule,
         render_graph::{
-            NodeRunError, RenderGraphApp, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
+            NodeRunError, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
         },
         renderer::RenderContext,
         view::{ExtractedView, ExtractedWindows, ViewTarget},
@@ -22,6 +22,7 @@ use bevy::{
     time::Time,
 };
 use std::{hash::Hash, ops::Deref};
+use crate::prelude::bevy_render::render_graph::RenderGraphExt;
 
 pub mod compute;
 
@@ -121,7 +122,7 @@ where
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext<'w>,
-        (view_entity, view_target, _extracted_view): QueryItem<'w, Self::ViewQuery>,
+        (view_entity, view_target, _extracted_view): QueryItem<'w, '_, Self::ViewQuery>,
         world: &'w World,
     ) -> Result<(), NodeRunError> {
         let render_fn = world.resource::<RenderFnRes<M>>();

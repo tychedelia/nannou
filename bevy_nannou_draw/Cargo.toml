@@ -21,6 +21,7 @@ rusttype = { workspace = true, features = ["gpu_cache"] }
 rayon.workspace = true
 uuid.workspace = true
 bitflags.workspace = true
+bytemuck = "1"
 
 [features]
 nightly = []

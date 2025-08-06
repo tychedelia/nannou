@@ -12,7 +12,7 @@ use bevy::{
     pbr::{RenderMeshInstances, SetMeshBindGroup, SetMeshViewBindGroup},
     prelude::*,
     render::{
-        Render, RenderApp, RenderSet,
+        Render, RenderApp, RenderSystems,
         extract_component::ExtractComponent,
         mesh::{RenderMesh, RenderMeshBufferInfo, allocator::MeshAllocator},
         render_asset::{RenderAssets, prepare_assets},
@@ -118,7 +118,7 @@ where
                 Render,
                 queue_shader_model::<SM, With<IndirectMesh>, DrawIndirectShaderModel<SM>>
                     .after(prepare_assets::<PreparedShaderModel<SM>>)
-                    .in_set(RenderSet::QueueMeshes),
+                    .in_set(RenderSystems::QueueMeshes),
             );
     }
 }

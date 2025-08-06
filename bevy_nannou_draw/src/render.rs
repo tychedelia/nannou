@@ -5,8 +5,9 @@ use crate::draw::{
     mesh::MeshExt,
     render::{RenderContext, RenderPrimitive},
 };
+use bevy::asset::uuid_handle;
 use bevy::{
-    asset::{Asset, UntypedAssetId, load_internal_asset, weak_handle},
+    asset::{Asset, UntypedAssetId, load_internal_asset},
     core_pipeline::core_3d::Transparent3d,
     ecs::{
         query::{QueryFilter, QueryItem},
@@ -21,7 +22,7 @@ use bevy::{
     },
     prelude::{TypePath, *},
     render::{
-        RenderApp, RenderSet,
+        RenderApp, RenderSystems,
         camera::RenderTarget,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         extract_instances::{ExtractInstance, ExtractInstancesPlugin, ExtractedInstances},
@@ -48,11 +49,18 @@ use bevy::{
     },
     window::{PrimaryWindow, WindowRef},
 };
+use bytemuck::{Pod, Zeroable};
 use lyon::lyon_tessellation::{FillTessellator, StrokeTessellator};
 use std::{any::TypeId, hash::Hash, marker::PhantomData};
+use bevy::ecs::system::lifetimeless::SResMut;
+use bevy::ecs::system::SystemChangeTick;
+use bevy::pbr::{EntitiesNeedingSpecialization, EntitySpecializationTicks, MaterialBindGroupAllocator, MaterialBindGroupAllocators, PreparedMaterial, RenderMaterialBindings, RenderMaterialInstance, SpecializedMaterialPipelineCache};
+use bevy::render::{Extract, RenderStartup};
+use bevy::render::erased_render_asset::ErasedRenderAsset;
+use bevy::utils::Parallel;
 
 pub const DEFAULT_NANNOU_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("f2dbf06f-38d5-47f1-8ad4-3f188d888dd0");
+    uuid_handle!("f2dbf06f-38d5-47f1-8ad4-3f188d888dd0");
 
 pub trait ShaderModel:
     Asset + AsBindGroup + Clone + Default + Sized + Send + Sync + 'static
@@ -93,7 +101,7 @@ where
     type QueryData = Read<ShaderModelHandle<SM>>;
     type QueryFilter = ();
 
-    fn extract(item: QueryItem<'_, Self::QueryData>) -> Option<Self> {
+    fn extract(item: QueryItem<'_, '_, Self::QueryData>) -> Option<Self> {
         Some(item.clone())
     }
 }
@@ -143,6 +151,25 @@ where
             .add_systems(
                 PostUpdate,
                 update_shader_model::<SM>.after(update_draw_mesh),
+            )
+            .add_systems(
+                PostUpdate,
+                check_entities_needing_specialization.after(AssetEventSystems),
+            )
+            .init_resource::<EntitiesNeedingSpecialization<SM>>();
+
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
+
+        render_app
+            .add_systems(RenderStartup, init_shader_model_resources)
+            .add_systems(
+                ExtractSchedule,
+                (
+                    extract_shader_models,
+                    extract_shader_models_needing_specialization,
+                ),
             );
 
         app.sub_app_mut(RenderApp)
@@ -152,7 +179,7 @@ where
                 bevy::render::Render,
                 queue_shader_model::<SM, With<ShaderModelMesh>, DrawShaderModel<SM>>
                     .after(prepare_assets::<PreparedShaderModel<SM>>)
-                    .in_set(RenderSet::QueueMeshes),
+                    .in_set(RenderSystems::QueueMeshes),
             );
     }
 
@@ -183,7 +210,9 @@ impl<SM: ShaderModel> RenderAsset for PreparedShaderModel<SM> {
         shader_model: Self::SourceAsset,
         _asset_id: AssetId<Self::SourceAsset>,
         (render_device, pipeline, shader_model_param): &mut SystemParamItem<Self::Param>,
+        _prev: Option<&Self>,
     ) -> Result<Self, PrepareAssetError<Self::SourceAsset>> {
+        let data = shader_model.bind_group_data();
         match shader_model.as_bind_group(
             &pipeline.shader_model_layout,
             render_device,
@@ -192,7 +221,7 @@ impl<SM: ShaderModel> RenderAsset for PreparedShaderModel<SM> {
             Ok(prepared) => Ok(PreparedShaderModel {
                 bindings: prepared.bindings,
                 bind_group: prepared.bind_group,
-                key: prepared.data,
+                key: data,
             }),
             Err(AsBindGroupError::RetryNextUpdate) => {
                 Err(PrepareAssetError::RetryNextUpdate(shader_model))
@@ -239,6 +268,7 @@ impl<P: PhaseItem, SM: ShaderModel, const I: usize> RenderCommand<P>
 pub type DrawShaderModel<SM> = (
     SetItemPipeline,
     SetMeshViewBindGroup<0>,
+
     SetMeshBindGroup<1>,
     SetShaderModelBindGroup<SM, 2>,
     DrawMesh,
@@ -294,92 +324,248 @@ impl AsBindGroupShaderType<NannouShaderModelUniform> for NannouShaderModel {
     }
 }
 
-#[derive(Eq, PartialEq, Hash, Clone)]
+#[repr(C)]
+#[derive(Eq, PartialEq, Hash, Clone, Copy)]
+pub struct NannouPolygonMode(PolygonMode);
+
+unsafe impl Zeroable for NannouPolygonMode {}
+unsafe impl Pod for NannouPolygonMode {}
+
+#[repr(C)]
+#[derive(Eq, PartialEq, Hash, Clone, Copy)]
+pub struct NannouBlendState(Option<BlendState>);
+
+unsafe impl Zeroable for NannouBlendState {}
+unsafe impl Pod for NannouBlendState {}
+
+#[repr(C)]
+#[derive(Eq, PartialEq, Hash, Clone, Copy, Pod, Zeroable)]
 pub struct NannouBindGroupData {
-    polygon_mode: PolygonMode,
-    blend: Option<BlendState>,
+    polygon_mode: NannouPolygonMode,
+    blend: NannouBlendState,
 }
 
 impl From<&NannouShaderModel> for NannouBindGroupData {
     fn from(shader_model: &NannouShaderModel) -> Self {
         Self {
-            polygon_mode: shader_model.polygon_mode,
-            blend: shader_model.blend,
+            polygon_mode: NannouPolygonMode(shader_model.polygon_mode),
+            blend: NannouBlendState(shader_model.blend),
         }
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn queue_shader_model<SM, QF, RC>(
-    draw_functions: Res<DrawFunctions<Transparent3d>>,
-    custom_pipeline: Res<ShaderModelPipeline<SM>>,
-    mut pipelines: ResMut<SpecializedMeshPipelines<ShaderModelPipeline<SM>>>,
-    pipeline_cache: Res<PipelineCache>,
-    meshes: Res<RenderAssets<RenderMesh>>,
-    (
-        render_mesh_instances,
-        nannou_meshes,
-        mut phases,
-        mut views,
-        shader_models,
-        extracted_instances,
-    ): (
-        Res<RenderMeshInstances>,
-        Query<(Entity, &MainEntity, &DrawIndex), QF>,
-        ResMut<ViewSortedRenderPhases<Transparent3d>>,
-        Query<(&ExtractedView, &Msaa)>,
-        Res<RenderAssets<PreparedShaderModel<SM>>>,
-        Res<ExtractedInstances<ShaderModelHandle<SM>>>,
-    ),
-) where
-    SM: ShaderModel,
-    SM::Data: PartialEq + Eq + Hash + Clone,
-    QF: QueryFilter,
-    RC: 'static,
-{
-    let draw_function = draw_functions.read().id::<RC>();
+#[derive(Resource, Deref)]
+pub struct ShaderModelBindGroupLayout<SM> {
+    #[deref]
+    bind_group_layout: BindGroupLayout,
+    _marker: PhantomData<SM>,
+}
 
-    for (view, msaa) in &mut views {
-        let msaa_key = MeshPipelineKey::from_msaa_samples(msaa.samples());
-        let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
-            continue;
+fn init_shader_model_resources<SM>(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    mut bind_group_allocators: ResMut<MaterialBindGroupAllocators>,
+)
+    where SM: ShaderModel + Default + Send + Sync + 'static,
+{
+    let bind_group_layout = SM::bind_group_layout(&render_device);
+
+    commands.insert_resource(
+        ShaderModelBindGroupLayout::<SM> {
+            bind_group_layout: bind_group_layout.clone(),
+            _marker: PhantomData,
+        },
+    );
+
+    bind_group_allocators.insert(
+        TypeId::of::<SM>(),
+        MaterialBindGroupAllocator::new(&render_device, None, None, bind_group_layout, None),
+    );
+}
+
+impl <SM: ShaderModel> ErasedRenderAsset for SM {
+    type SourceAsset = SM;
+    type ErasedAsset = PreparedMaterial;
+    type Param = (
+        SRes<DrawFunctions<Transparent3d>>,
+        SRes<ShaderModelBindGroupLayout<SM>>,
+        SRes<AssetServer>,
+        SResMut<MaterialBindGroupAllocators>,
+        SResMut<RenderMaterialBindings>,
+        SRes<RenderAssets<GpuImage>>,
+        SRes<SMBindGroupSampler>,
+    );
+
+    fn prepare_asset(
+        source_asset: Self::SourceAsset,
+        asset_id: AssetId<Self::SourceAsset>,
+        (
+            opaque_draw_functions,
+            material_layout,
+            asset_server,
+            bind_group_allocators,
+            render_material_bindings,
+            gpu_images,
+            shader_model_sampler,
+        ): &mut SystemParamItem<Self::Param>,
+    ) -> std::result::Result<Self::ErasedAsset, PrepareAssetError<Self::SourceAsset>> {
+        let material_layout = material_layout.0.clone();
+        let draw_function_id = opaque_draw_functions.read().id::<DrawMaterial>();
+        let bind_group_allocator = bind_group_allocators
+            .get_mut(&TypeId::of::<SM>())
+            .unwrap();
+        let Some(image) = gpu_images.get(&source_asset.image) else {
+            return Err(PrepareAssetError::RetryNextUpdate(source_asset));
+        };
+        let unprepared = UnpreparedBindGroup {
+            bindings: BindingResources(vec![
+                (
+                    0,
+                    OwnedBindingResource::TextureView(
+                        TextureViewDimension::D2,
+                        image.texture_view.clone(),
+                    ),
+                ),
+                (
+                    1,
+                    OwnedBindingResource::Sampler(
+                        SamplerBindingType::NonFiltering,
+                        shader_model_sampler.0.clone(),
+                    ),
+                ),
+            ]),
+        };
+        let binding = match render_material_bindings.entry(asset_id.into()) {
+            Entry::Occupied(mut occupied_entry) => {
+                bind_group_allocator.free(*occupied_entry.get());
+                let new_binding =
+                    bind_group_allocator.allocate_unprepared(unprepared, &material_layout);
+                *occupied_entry.get_mut() = new_binding;
+                new_binding
+            }
+            Entry::Vacant(vacant_entry) => *vacant_entry
+                .insert(bind_group_allocator.allocate_unprepared(unprepared, &material_layout)),
         };
 
-        let view_key = msaa_key | MeshPipelineKey::from_hdr(view.hdr);
-        for (entity, main_entity, draw_idx) in &nannou_meshes {
-            let Some(handle) = extracted_instances.get(main_entity) else {
-                continue;
-            };
-            let Some(shader_model) = shader_models.get(&handle.0) else {
-                continue;
-            };
-            let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(*main_entity)
-            else {
-                continue;
-            };
-            let Some(mesh) = meshes.get(mesh_instance.mesh_asset_id) else {
-                continue;
-            };
-            let mesh_key =
-                view_key | MeshPipelineKey::from_primitive_topology(mesh.primitive_topology());
-            let key = ShaderModelPipelineKey {
-                mesh_key,
-                bind_group_data: shader_model.key.clone(),
-            };
-            let pipeline = pipelines
-                .specialize(&pipeline_cache, &custom_pipeline, key, &mesh.layout)
-                .unwrap();
+        let mut properties = MaterialProperties {
+            material_layout: Some(material_layout),
+            ..Default::default()
+        };
+        properties.add_draw_function(MaterialDrawFunction, draw_function_id);
+        properties.add_shader(MaterialFragmentShader, asset_server.load(SHADER_ASSET_PATH));
 
-            phase.add(Transparent3d {
-                distance: draw_idx.0 as f32,
-                pipeline,
-                entity: (entity, *main_entity),
-                draw_function,
-                batch_range: Default::default(),
-                extra_index: PhaseItemExtraIndex::None,
-                indexed: true,
-            });
+        Ok(PreparedMaterial {
+            binding,
+            properties: Arc::new(properties),
+        })
+    }
+}
+
+/// set up a simple 3D scene
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<SM>>,
+    asset_server: Res<AssetServer>,
+) {
+    // cube
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(2.0, 2.0, 2.0))),
+        SM3d(materials.add(ImageMaterial {
+            image: asset_server.load("branding/icon.png"),
+        })),
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+    // light
+    commands.spawn((
+        PointLight {
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(4.0, 8.0, 4.0),
+    ));
+    // camera
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+}
+
+fn extract_shader_models(
+    mut material_instances: ResMut<RenderMaterialInstances>,
+    changed_meshes_query: Extract<
+        Query<
+            (Entity, &ViewVisibility, &SM3d),
+            Or<(Changed<ViewVisibility>, Changed<SM3d>)>,
+        >,
+    >,
+) {
+    let last_change_tick = material_instances.current_change_tick;
+
+    for (entity, view_visibility, material) in &changed_meshes_query {
+        if view_visibility.get() {
+            material_instances.instances.insert(
+                entity.into(),
+                RenderMaterialInstance {
+                    asset_id: material.0.id().untyped(),
+                    last_change_tick,
+                },
+            );
+        } else {
+            material_instances
+                .instances
+                .remove(&MainEntity::from(entity));
         }
+    }
+}
+
+fn check_entities_needing_specialization(
+    needs_specialization: Query<
+        Entity,
+        (
+            Or<(
+                Changed<Mesh3d>,
+                AssetChanged<Mesh3d>,
+                Changed<SM3d>,
+                AssetChanged<SM3d>,
+            )>,
+            With<SM3d>,
+        ),
+    >,
+    mut par_local: Local<Parallel<Vec<Entity>>>,
+    mut entities_needing_specialization: ResMut<EntitiesNeedingSpecialization<SM>>,
+) {
+    entities_needing_specialization.clear();
+
+    needs_specialization
+        .par_iter()
+        .for_each(|entity| par_local.borrow_local_mut().push(entity));
+
+    par_local.drain_into(&mut entities_needing_specialization);
+}
+
+fn extract_shader_models_needing_specialization(
+    entities_needing_specialization: Extract<Res<EntitiesNeedingSpecialization<SM>>>,
+    mut entity_specialization_ticks: ResMut<EntitySpecializationTicks>,
+    mut removed_mesh_material_components: Extract<RemovedComponents<SM3d>>,
+    mut specialized_material_pipeline_cache: ResMut<SpecializedMaterialPipelineCache>,
+    views: Query<&ExtractedView>,
+    ticks: SystemChangeTick,
+) {
+    for entity in removed_mesh_material_components.read() {
+        entity_specialization_ticks.remove(&MainEntity::from(entity));
+        for view in views {
+            if let Some(cache) =
+                specialized_material_pipeline_cache.get_mut(&view.retained_view_entity)
+            {
+                cache.remove(&MainEntity::from(entity));
+            }
+        }
+    }
+
+    for entity in entities_needing_specialization.iter() {
+        // Update the entity's specialization tick with this run's tick
+        entity_specialization_ticks.insert((*entity).into(), ticks.this_run());
     }
 }
 
@@ -496,7 +682,7 @@ impl ShaderModel for NannouShaderModel {
         _layout: &MeshVertexBufferLayoutRef,
         key: ShaderModelPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        if let Some(blend) = key.bind_group_data.blend {
+        if let Some(blend) = key.bind_group_data.blend.0 {
             let fragment = descriptor.fragment.as_mut().unwrap();
             fragment.targets.iter_mut().for_each(|target| {
                 if let Some(target) = target {
@@ -505,7 +691,7 @@ impl ShaderModel for NannouShaderModel {
             });
         }
 
-        descriptor.primitive.polygon_mode = key.bind_group_data.polygon_mode;
+        descriptor.primitive.polygon_mode = key.bind_group_data.polygon_mode.0;
         Ok(())
     }
 }
@@ -535,7 +721,7 @@ fn update_shader_model<SM>(
         if id.type_id() == TypeId::of::<SM>() {
             commands
                 .entity(entity)
-                .insert(ShaderModelHandle(Handle::Weak(id.typed::<SM>())));
+                .insert(ShaderModelHandle(models.reserve_handle()));
         }
     }
 }
