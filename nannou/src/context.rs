@@ -57,7 +57,7 @@ use std::cell::{Cell, RefCell};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
-use crate::app::find_project_path;
+use crate::app::{RunMode, UpdateModeExt, find_project_path};
 use crate::camera::{CameraComponents, SetCamera};
 use crate::light::{LightComponents, SetLight};
 use crate::prelude::render::NannouCamera;
@@ -184,12 +184,20 @@ impl<'w, 's> App<'w, 's> {
     pub fn mouse(&self) -> Vec2 {
         self.with_window(self.window_id(), |window| {
             let screen_position = window.cursor_position().unwrap_or(Vec2::ZERO);
-            Vec2::new(
-                screen_position.x - window.width() / 2.0,
-                -(screen_position.y - window.height() / 2.0),
-            )
+            screen_to_points(screen_position, window.width(), window.height())
         })
         .expect("focused window entity is not a window")
+    }
+
+    /// Convert a raw screen position (top-left origin, y-down) within the given window into
+    /// nannou's coordinate system (centre origin, y-up), in points.
+    ///
+    /// Returns `Vec2::ZERO` if the window is no longer available.
+    pub(crate) fn screen_to_points(&self, window: Entity, screen_position: Vec2) -> Vec2 {
+        self.with_window(window, |window| {
+            screen_to_points(screen_position, window.width(), window.height())
+        })
+        .unwrap_or(Vec2::ZERO)
     }
 
     /// The [`Entity`] of the "current" window: the focused window, else the primary window, else a
@@ -390,6 +398,20 @@ impl<'w, 's> App<'w, 's> {
         });
     }
 
+    /// Set the [`RunMode`] at runtime, e.g. to switch into or out of a loop mode.
+    ///
+    /// Entering a loop mode (`RunMode::loop_once`/`loop_ntimes`) resets its frame budget
+    /// and drives the loop until it freezes; switching to another mode leaves the update
+    /// mode to you (pair it with [`set_update_mode`](Self::set_update_mode) if you want to
+    /// resume continuous animation).
+    pub fn set_run_mode(&self, run_mode: RunMode) {
+        self.par_commands.command_scope(move |mut commands| {
+            commands.queue(move |world: &mut World| {
+                *world.resource_mut::<RunMode>() = run_mode;
+            });
+        });
+    }
+
     /// Set the update mode used while the window is both focused and unfocused.
     ///
     /// See [`UpdateModeExt`](crate::app::UpdateModeExt) for convenient `wait`/`freeze` modes.
@@ -408,6 +430,15 @@ impl<'w, 's> App<'w, 's> {
     /// Set the update mode used while the window is focused.
     pub fn set_focused_update_mode(&self, mode: UpdateMode) {
         self.set_winit_settings(move |settings| settings.focused_mode = mode);
+    }
+
+    /// Drive updates at a fixed rate of `hz` ticks per second, while both focused and
+    /// unfocused. Analogous to Processing's `frameRate(fps)`.
+    ///
+    /// Convenience for `set_update_mode(UpdateMode::rate(hz))`. See
+    /// [`UpdateModeExt::rate`](crate::app::UpdateModeExt::rate) for the exact semantics.
+    pub fn set_update_rate(&self, hz: f64) {
+        self.set_update_mode(UpdateMode::rate(hz));
     }
 
     /// Queue a mutation of the [`WinitSettings`] resource.
@@ -487,10 +518,15 @@ impl<'w, 's> App<'w, 's> {
         Window { app: self, entity }
     }
 
-    /// A handle for reading and updating the primary window, falling back to a primary window
-    /// created this call (but not yet spawned).
+    /// A handle for reading and updating the app's main window.
     ///
-    /// **Panics** if there is no primary window.
+    /// This is the window explicitly marked primary (see
+    /// [`Builder::primary`](crate::window::Builder::primary)) if there is one, including a
+    /// primary window created this call but not yet spawned. Otherwise it falls back to the
+    /// current window (see [`window_id`](Self::window_id)), so a single window is treated as
+    /// the main window without needing to be marked primary.
+    ///
+    /// **Panics** if there are no windows open.
     pub fn main_window(&self) -> Window<'_, 'w, 's> {
         let entity = self
             .primary_window
@@ -505,7 +541,8 @@ impl<'w, 's> App<'w, 's> {
                     .find(|(_, primary, _)| *primary)
                     .map(|(e, _, _)| *e)
             })
-            .expect("no primary window is open in the App");
+            // No window is explicitly primary: fall back to the current window.
+            .unwrap_or_else(|| self.window_id());
         Window { app: self, entity }
     }
 }
@@ -713,4 +750,13 @@ impl LightBuilder<'_, '_, '_> {
                 .id()
         })
     }
+}
+
+/// Convert a raw screen position (top-left origin, y-down) within a window of the given dimensions
+/// into nannou's coordinate system (centre origin, y-up), in points.
+fn screen_to_points(screen_position: Vec2, width: f32, height: f32) -> Vec2 {
+    Vec2::new(
+        screen_position.x - width / 2.0,
+        -(screen_position.y - height / 2.0),
+    )
 }

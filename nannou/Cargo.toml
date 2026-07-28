@@ -21,7 +21,6 @@ bevy = { workspace = true, default-features = false, features = [
 # `inspector` feature below and the RC -> stable tracking issue).
 #bevy-inspector-egui = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }
-bevy_common_assets = { workspace = true, optional = true }
 nannou_derive = { workspace = true }
 nannou_draw = { workspace = true }
 nannou_video = { workspace = true, optional = true }
@@ -45,6 +44,11 @@ bevy = { workspace = true, features = ["webgpu"] }
 tokio = { version = "1", features = ["rt"]}
 image = { workspace = true, features = [] }
 
+[dev-dependencies]
+# Only needed by `tests/shader_model_tests.rs`: the `#[shader_model]` expansion
+# references `::bevy::*` paths, so the test crate needs `bevy` in scope.
+bevy = { workspace = true }
+
 [features]
 default = [
     "jpeg",
@@ -58,8 +62,6 @@ default = [
     "x11",
     "webgl2",
 ]
-config_json = ["bevy_common_assets/json"]
-config_toml = ["bevy_common_assets/toml"]
 # `immutable_ctx` lets nannou read the egui context through `&self` (the classic `app.egui()`
 # returns a cheap `egui::Context` handle), matching nannou's imperative single-pass UI usage.
 egui = ["dep:bevy_egui", "bevy_egui/immutable_ctx"]

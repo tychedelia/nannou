@@ -76,17 +76,13 @@ jobs:
   # order, then create the workspace `vX.Y.Z` tag and a GitHub Release. Runs
   # after CI passes on a push to `master`. Configured via `release-plz.toml`.
   #
-  # Gated on the `RELEASE_PLZ_ENABLED` repository variable so this machinery can
-  # land while the first release is deferred (e.g. until Bevy is stable): the
-  # job is skipped - and nothing is published - until the variable is set to
-  # `true` in the repository settings. Note that several crates have never been
-  # published, so enabling this will publish them at the current version
-  # regardless of a bump. See `guide/src/contributing/publishing-new-versions.md`.
+  # Several nannou crates were first published as `0.1.0` stubs, so this job
+  # publishes them at the current workspace version. See
+  # `guide/src/contributing/publishing-new-versions.md`.
   release-plz:
     if: >-
       github.event_name == 'push'
       && github.ref == 'refs/heads/master'
-      && vars.RELEASE_PLZ_ENABLED == 'true'
     needs: [verifications]
     permissions:
       contents: write
@@ -110,7 +106,10 @@ jobs:
     - name: Run release-plz
       run: nix develop --command release-plz release
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # release-plz reads the git-forge token from GIT_TOKEN; it uses this to
+        # create the `v{version}` tag and GitHub Release. This is distinct from
+        # GITHUB_TOKEN, which the `release` subcommand does not consume.
+        GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Short-lived crates.io token minted via Trusted Publishing (OIDC);
         # release-plz passes it through to `cargo publish`. No crates.io secret
         # is stored. Requires each crate to have a trusted publisher configured

@@ -6,7 +6,8 @@
 //! - [**App**](./struct.App.html) - provides a context and API for windowing, devices, etc.
 //! - [**Proxy**](./struct.Proxy.html) - a handle to an **App** that may be used from a non-main
 //!   thread.
-//! - [**LoopMode**](./enum.LoopMode.html) - describes the behaviour of the application event loop.
+//! - [`RunMode`] and [`UpdateModeExt`] - describe the behaviour of the application loop and how
+//!   often the `update`/`view` functions are called.
 use bevy::asset::UnapprovedPathMode;
 use bevy::{
     app::AppExit,
@@ -107,6 +108,13 @@ pub struct Builder<M = (), E = WindowEvent> {
     render: Option<RenderFn<M>>,
     default_view: Option<View<M>>,
     exit: Option<ExitFn<M>>,
+    /// Whether render pipelines compile synchronously (the default). See
+    /// [`Builder::synchronous_pipeline_compilation`].
+    synchronous_pipeline_compilation: bool,
+    /// Whether the default Bevy plugins have been added to `app` yet. Plugin
+    /// setup is deferred until first needed so that `synchronous_pipeline_compilation`
+    /// can be configured beforehand.
+    plugins_initialized: bool,
 }
 
 /// A nannou `Sketch` builder.
@@ -186,16 +194,54 @@ pub enum RunMode {
     /// Run until the user exits the application.
     #[default]
     UntilExit,
-    /// Run for a fixed number of frames.
-    Ticks(u64),
-    /// Run for a fixed duration (best effort).
-    Duration(Duration),
+    /// Run `update` and `view` a fixed number of times, then hold the last frame on
+    /// screen while the window idles.
+    ///
+    /// The modern equivalent of the old `LoopMode::loop_once()` / `NTimes`: `update`
+    /// and `view` each run exactly `n` times, then the draw is frozen (see
+    /// [`nannou_draw::DrawFrozen`]) so the last frame's rendered meshes keep being
+    /// drawn and the frame stays on screen. The window idles at ~0 CPU and remains
+    /// closable and resizable. Input and window callbacks keep firing; they just no
+    /// longer trigger `update`/`view`.
+    ///
+    /// Because `view` runs a fixed number of times rather than continuously, a
+    /// `sketch` whose `view` reads live `app.time()`/`app.mouse()` is genuinely
+    /// frozen - this is the intended mode for static, sketch-based compositions.
+    ///
+    /// To instead run a fixed number of frames and then *quit* the process (e.g. for
+    /// headless rendering), call [`App::quit`](crate::app::App::quit) from your own
+    /// `update` once a counter reaches the desired frame.
+    LoopNTimes(u64),
 }
 
 impl RunMode {
-    /// Run the main update loop once.
-    pub fn once() -> Self {
-        RunMode::Ticks(1)
+    /// Run `update` and `view` once, then hold that frame on screen while the window
+    /// idles - the modern equivalent of `LoopMode::loop_once()`.
+    pub fn loop_once() -> Self {
+        RunMode::LoopNTimes(1)
+    }
+
+    /// Run `update` and `view` `n` times, then hold the last frame on screen while
+    /// the window idles - the modern equivalent of `LoopMode::loop_ntimes(n)`.
+    pub fn loop_ntimes(n: u64) -> Self {
+        RunMode::LoopNTimes(n)
+    }
+}
+
+/// Build `bevy_egui`'s plugin in single-pass mode.
+///
+/// Single-pass mode lets nannou users build egui UI imperatively from their
+/// `update`/`view` functions; `bevy_egui`'s multi-pass default instead expects
+/// UI to be built within the dedicated `EguiPrimaryContextPass` schedule. The
+/// `enable_multipass_for_primary_context` flag is deprecated upstream (single-
+/// pass "may get deprecated in the future"), hence `#[allow(deprecated)]`;
+/// revisit if nannou moves its egui integration onto that schedule.
+#[cfg(feature = "egui")]
+#[allow(deprecated)]
+fn egui_plugin() -> bevy_egui::EguiPlugin {
+    bevy_egui::EguiPlugin {
+        enable_multipass_for_primary_context: false,
+        ..bevy_egui::EguiPlugin::default()
     }
 }
 
@@ -215,42 +261,8 @@ where
     /// The Model that is returned by the function is the same model that will be passed to the
     /// given event and view functions.
     pub fn new(model: ModelFn<M>) -> Self {
-        let mut app = bevy::app::App::new();
-        app.add_plugins((
-            DefaultPlugins
-                .set(AssetPlugin {
-                    unapproved_path_mode: UnapprovedPathMode::Allow,
-                    ..default()
-                })
-                .set(WindowPlugin {
-                #[cfg(not(target_arch = "wasm32"))]
-                // Don't spawn a  window by default, we'll handle this ourselves
-                primary_window: None,
-                #[cfg(target_arch = "wasm32")]
-                // We create a default window on wasm to make sure that the render initialization
-                // has a canvas to attach to when configuring the surface.
-                primary_window: Some(Window {
-                    title: "Nannou".to_string(),
-                    resolution: (1024.0, 768.0).into(),
-                    ..default()
-                }),
-                exit_condition: ExitCondition::OnAllClosed,
-                ..default()
-            }),
-            #[cfg(feature = "egui")]
-            // Single-pass mode lets nannou users build egui UI imperatively from
-            // their `update`/`view` functions (the multi-pass default expects UI
-            // to be built within the dedicated `EguiPrimaryContextPass` schedule).
-            bevy_egui::EguiPlugin {
-                enable_multipass_for_primary_context: false,
-                ..bevy_egui::EguiPlugin::default()
-            },
-            NannouPlugin,
-        ))
-        .init_resource::<RunMode>();
-
         Builder {
-            app,
+            app: bevy::app::App::new(),
             model,
             config: Config::default(),
             event: None,
@@ -258,6 +270,8 @@ where
             render: None,
             default_view: None,
             exit: None,
+            synchronous_pipeline_compilation: true,
+            plugins_initialized: false,
         }
     }
 }
@@ -267,6 +281,75 @@ where
     M: 'static + Send + Sync,
     E: Message,
 {
+    /// Add Bevy's `DefaultPlugins` and nannou's own plugins to the app, if they
+    /// haven't been added already.
+    ///
+    /// Plugin setup is deferred out of [`Builder::new`] so that
+    /// [`Builder::synchronous_pipeline_compilation`] can be configured before the
+    /// plugins (and the value it controls) are built.
+    fn ensure_initialized(&mut self) {
+        if self.plugins_initialized {
+            return;
+        }
+        self.plugins_initialized = true;
+        self.app
+            .add_plugins((
+                DefaultPlugins
+                    .set(AssetPlugin {
+                        unapproved_path_mode: UnapprovedPathMode::Allow,
+                        ..default()
+                    })
+                    .set(WindowPlugin {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        // Don't spawn a window by default, we'll handle this ourselves.
+                        primary_window: None,
+                        #[cfg(target_arch = "wasm32")]
+                        // We create a default window on wasm to make sure that the render
+                        // initialization has a canvas to attach to when configuring the surface.
+                        primary_window: Some(Window {
+                            title: "Nannou".to_string(),
+                            resolution: (1024.0, 768.0).into(),
+                            present_mode: crate::window::DEFAULT_PRESENT_MODE,
+                            ..default()
+                        }),
+                        exit_condition: ExitCondition::OnAllClosed,
+                        ..default()
+                    })
+                    .set(bevy::render::RenderPlugin {
+                        synchronous_pipeline_compilation: self.synchronous_pipeline_compilation,
+                        ..default()
+                    }),
+                #[cfg(feature = "egui")]
+                egui_plugin(),
+                NannouPlugin,
+            ))
+            .init_resource::<RunMode>();
+    }
+
+    /// Set whether render pipelines are compiled synchronously (the default,
+    /// `true`) or asynchronously (`false`).
+    ///
+    /// nannou compiles pipelines synchronously by default so that the no-clear
+    /// "persistent canvas" works from the very first frame. With multisampling
+    /// enabled (the default), Bevy carries the previous frame's contents forward
+    /// each frame via an MSAA-writeback pass, whose pipeline would otherwise take
+    /// ~40 frames to compile asynchronously - and until it is ready nothing
+    /// persists, so anything drawn during that window (e.g. a sketch that composes
+    /// its image once on frame 0) is silently dropped.
+    ///
+    /// Pass `false` to opt back into Bevy's asynchronous pipeline compilation.
+    /// Call this before any other builder method that configures the underlying
+    /// app (e.g. `render`, `compute`, `run`).
+    pub fn synchronous_pipeline_compilation(mut self, synchronous: bool) -> Self {
+        assert!(
+            !self.plugins_initialized,
+            "`synchronous_pipeline_compilation` must be set before other builder \
+             methods that configure the app"
+        );
+        self.synchronous_pipeline_compilation = synchronous;
+        self
+    }
+
     /// The default `view` function that the app will call to allow you to present your Model to
     /// the surface of a window on your display.
     ///
@@ -282,8 +365,8 @@ where
 
     /// A function for updating the model within the application loop.
     ///
-    /// See the `LoopMode` documentation for more information about the different kinds of
-    /// application loop modes available in nannou and how they behave.
+    /// See [`RunMode`] and [`set_update_mode`](App::set_update_mode) for more information about how
+    /// often the loop runs and how the `update`/`view` functions are scheduled.
     ///
     /// Update events are also emitted as a variant of the `event` function. Note that if you
     /// specify both an `event` function and an `update` function, the `event` function will always
@@ -298,6 +381,7 @@ where
         M: Send + Sync + Clone + 'static,
     {
         self.render = Some(render);
+        self.ensure_initialized();
         self.app.add_plugins(RenderPlugin::<M>::default());
         self
     }
@@ -317,6 +401,7 @@ where
     /// small single-window applications and examples.
     pub fn simple_window(mut self, view: ViewFn<M>) -> Self {
         self.default_view = Some(View::WithModel(view));
+        self.ensure_initialized();
         self.app.insert_resource(CreateDefaultWindow);
         self
     }
@@ -332,8 +417,27 @@ where
 
     /// Specify the behaviour of the application loop.
     pub fn set_run_mode(mut self, run_mode: RunMode) -> Self {
+        self.ensure_initialized();
         self.app.insert_resource(run_mode);
         self
+    }
+
+    /// Run `update` and `view` once, then hold that frame on screen while the window
+    /// idles - the modern equivalent of `LoopMode::loop_once()`.
+    ///
+    /// Shorthand for [`set_run_mode`](Self::set_run_mode) with
+    /// [`RunMode::loop_once`].
+    pub fn loop_once(self) -> Self {
+        self.set_run_mode(RunMode::loop_once())
+    }
+
+    /// Run `update` and `view` `n` times, then hold the last frame on screen while
+    /// the window idles - the modern equivalent of `LoopMode::loop_ntimes(n)`.
+    ///
+    /// Shorthand for [`set_run_mode`](Self::set_run_mode) with
+    /// [`RunMode::loop_ntimes`].
+    pub fn loop_ntimes(self, n: u64) -> Self {
+        self.set_run_mode(RunMode::loop_ntimes(n))
     }
 
     pub fn shader_model<SM>(mut self) -> Self
@@ -341,12 +445,14 @@ where
         SM: ShaderModel,
         SM::Data: PartialEq + Eq + Hash + Clone,
     {
+        self.ensure_initialized();
         self.app
             .add_plugins((NannouShaderModelPlugin::<SM>::default(),));
         self
     }
 
     pub fn compute<CM: Compute>(mut self, compute_fn: ComputeUpdateFn<M, CM>) -> Self {
+        self.ensure_initialized();
         let render_app = self.app.sub_app_mut(bevy::render::RenderApp);
         render_app.insert_resource(ComputeShaderHandle(CM::shader()));
         self.app
@@ -370,24 +476,11 @@ where
         self
     }
 
-    #[cfg(any(feature = "config_json", feature = "config_toml"))]
-    pub fn init_config<T>(mut self) -> Self
-    where
-        for<'de> T: serde::Deserialize<'de> + Asset,
-    {
-        self.app.add_plugins((
-            #[cfg(feature = "config_json")]
-            bevy_common_assets::json::JsonAssetPlugin::<T>::new(&[".json"]),
-            #[cfg(feature = "config_toml")]
-            bevy_common_assets::toml::TomlAssetPlugin::<T>::new(&[".toml"]),
-        ));
-        self
-    }
-
     pub fn add_plugin<P>(mut self, plugin: P) -> Self
     where
         P: Plugin,
     {
+        self.ensure_initialized();
         self.app.add_plugins(plugin);
         self
     }
@@ -414,6 +507,7 @@ where
     /// thread as some platforms require that their application event loop and windows are
     /// initialised on the main thread.
     pub fn run(mut self) {
+        self.ensure_initialized();
         self.app
             .insert_resource(self.config.clone())
             .insert_resource(ModelFnRes(self.model))
@@ -443,7 +537,7 @@ where
                     window_closed_events::<M>,
                 ),
             )
-            .add_systems(Last, last::<M>)
+            .add_systems(Last, (apply_loop_once, last::<M>))
             .run();
     }
 }
@@ -469,6 +563,24 @@ impl SketchBuilder {
         self
     }
 
+    /// Draw the sketch once, then hold that frame on screen while the window idles -
+    /// the modern equivalent of `LoopMode::loop_once()`.
+    ///
+    /// `view` runs exactly once, so the composition is frozen (even a sketch whose
+    /// `view` reads live `app.time()`/`app.mouse()`). The window idles at ~0 CPU and
+    /// stays closable and resizable.
+    pub fn loop_once(mut self) -> Self {
+        self.builder = self.builder.loop_once();
+        self
+    }
+
+    /// Draw the sketch `n` times, then hold the last frame on screen while the window
+    /// idles. See [`loop_once`](Self::loop_once).
+    pub fn loop_ntimes(mut self, n: u64) -> Self {
+        self.builder = self.builder.loop_ntimes(n);
+        self
+    }
+
     /// Build and run a `Sketch` with the specified parameters.
     ///
     /// This calls `App::run` internally. See that method for details!
@@ -486,6 +598,7 @@ impl Builder<()> {
     pub fn sketch(view: SketchViewFn) -> SketchBuilder {
         let mut builder = Builder::new(default_model);
         builder.default_view = Some(View::Sketch(view));
+        builder.ensure_initialized();
         builder.app.insert_resource(CreateDefaultWindow);
         SketchBuilder { builder }
     }
@@ -666,29 +779,19 @@ fn update<M>(
     view_fn: Res<ViewFnRes<M>>,
     mut model: ResMut<ModelHolder<M>>,
     run_mode: Res<RunMode>,
-    time: Res<Time>,
-    mut ticks: Local<u64>,
+    draw_frozen: Res<nannou_draw::DrawFrozen>,
     windows: Query<(Entity, &WindowUserFunctions<M>)>,
 ) where
     M: 'static + Send + Sync,
 {
-    match *run_mode {
-        RunMode::UntilExit => {
-            // Do nothing, we'll quit when the user closes the window.
+    // Once a `LoopNTimes` draw has been frozen (see `apply_loop_once`), stop advancing
+    // the model and re-running `view`. The frozen draw meshes keep the last frame on
+    // screen, so `update` and `view` each run exactly `n` times in total.
+    if let RunMode::LoopNTimes(_) = *run_mode {
+        if draw_frozen.0 {
+            return;
         }
-        RunMode::Ticks(run_ticks) => {
-            if *ticks >= run_ticks {
-                app.quit();
-                return;
-            }
-        }
-        RunMode::Duration(duration) => {
-            if time.elapsed() >= duration {
-                app.quit();
-                return;
-            }
-        }
-    };
+    }
 
     // Run the model update function. Reset the current view first so `app.draw()` called from
     // `update` targets the focused window rather than the last window of the previous frame's
@@ -723,8 +826,45 @@ fn update<M>(
             }
         }
     }
+}
 
-    *ticks += 1;
+/// Freeze the draw once a [`RunMode::LoopNTimes`] budget has been rendered.
+///
+/// Runs in `Last`, after `update_draw_mesh` (`PostUpdate`) has spawned the frame's
+/// meshes and before the next frame's `clear_previous_frame` (`First`) would despawn
+/// them, so the last rendered frame's meshes are preserved. Setting [`nannou_draw::DrawFrozen`]
+/// then stops the draw systems and, via [`update`], the user's `update`/`view`; switching to
+/// [`UpdateMode::freeze`] idles the loop while keeping the window closable and resizable.
+fn apply_loop_once(
+    app: App,
+    run_mode: Res<RunMode>,
+    mut draw_frozen: ResMut<nannou_draw::DrawFrozen>,
+    mut rendered: Local<u64>,
+) {
+    // Reset the freeze state whenever the run mode changes, so a loop mode can be
+    // (re-)entered at runtime via `App::set_run_mode`. Harmless at build time (the
+    // resource reads as changed on the first frame, re-affirming the defaults).
+    if run_mode.is_changed() {
+        *rendered = 0;
+        draw_frozen.0 = false;
+        // Entering a loop mode needs a driving update mode so its frames render before
+        // it freezes below. Other modes leave the update mode to the caller.
+        if matches!(*run_mode, RunMode::LoopNTimes(_)) {
+            app.set_update_mode(UpdateMode::Continuous);
+        }
+    }
+
+    let RunMode::LoopNTimes(n) = *run_mode else {
+        return;
+    };
+    if draw_frozen.0 {
+        return;
+    }
+    *rendered += 1;
+    if *rendered >= n {
+        draw_frozen.0 = true;
+        app.set_update_mode(UpdateMode::freeze());
+    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -779,9 +919,11 @@ fn events<M, E>(
 
 // Each single-callback window-input driver has the same shape: for every message, look up the
 // target window's user functions, mark it the current view, and call the relevant callback
-// (optionally with a value derived from the event). Generate them from this macro.
+// (optionally with a value derived from the event, which may itself reference `app` - e.g. to
+// convert event coordinates into nannou's coordinate system). Generate them from this macro.
 macro_rules! window_event_driver {
-    ($name:ident, $msg:ty, $field:ident $(, |$evt:ident| $arg:expr)?) => {
+    // No derived value: the callback takes only `&App` and `&mut Model`.
+    ($name:ident, $msg:ty, $field:ident) => {
         fn $name<M>(
             app: App,
             mut events: MessageReader<$msg>,
@@ -794,11 +936,39 @@ macro_rules! window_event_driver {
                 if let Ok(user_fns) = user_fns.get(evt.window) {
                     if let Some(f) = user_fns.$field {
                         app.set_current_view(Some(evt.window));
-                        f(&app, &mut model $(, { let $evt = evt; $arg })?);
+                        f(&app, &mut model);
                     }
                 }
             }
         }
+    };
+    // Derived value with access to both `app` and the event.
+    ($name:ident, $msg:ty, $field:ident, |$app:ident, $evt:ident| $arg:expr) => {
+        fn $name<M>(
+            app: App,
+            mut events: MessageReader<$msg>,
+            user_fns: Query<&WindowUserFunctions<M>>,
+            mut model: ResMut<ModelHolder<M>>,
+        ) where
+            M: 'static + Send + Sync,
+        {
+            for evt in events.read() {
+                if let Ok(user_fns) = user_fns.get(evt.window) {
+                    if let Some(f) = user_fns.$field {
+                        app.set_current_view(Some(evt.window));
+                        f(&app, &mut model, {
+                            let $app = &app;
+                            let $evt = evt;
+                            $arg
+                        });
+                    }
+                }
+            }
+        }
+    };
+    // Derived value from the event alone.
+    ($name:ident, $msg:ty, $field:ident, |$evt:ident| $arg:expr) => {
+        window_event_driver!($name, $msg, $field, |_app, $evt| $arg);
     };
 }
 
@@ -864,8 +1034,9 @@ fn received_char_events<M>(
     }
 }
 
-window_event_driver!(cursor_moved_events, CursorMoved, mouse_moved, |evt| evt
-    .position);
+window_event_driver!(cursor_moved_events, CursorMoved, mouse_moved, |app, evt| {
+    app.screen_to_points(evt.window, evt.position)
+});
 
 button_event_driver!(
     mouse_button_events,
@@ -882,7 +1053,11 @@ window_event_driver!(window_moved_events, WindowMoved, moved, |evt| evt.position
 window_event_driver!(window_resized_events, WindowResized, resized, |evt| {
     Vec2::new(evt.width, evt.height)
 });
-window_event_driver!(touch_events, TouchInput, touch, |evt| *evt);
+window_event_driver!(touch_events, TouchInput, touch, |app, evt| {
+    let mut evt = *evt;
+    evt.position = app.screen_to_points(evt.window, evt.position);
+    evt
+});
 
 #[allow(clippy::type_complexity)]
 fn file_drop_events<M>(
@@ -979,17 +1154,48 @@ where
     }
 }
 
+/// A practically-indefinite reactive wait used by [`UpdateModeExt::wait`] and
+/// [`UpdateModeExt::freeze`].
+///
+/// There is no `Instant::MAX` to wait until, and `Duration::MAX` can't be used here:
+/// `bevy_winit`'s reactive handler schedules the next wake-up as `Instant::now() + wait`
+/// via `Instant::checked_add`, which overflows (returns `None`) for `Duration::MAX`. When
+/// that happens `bevy_winit` silently skips setting the control flow and the app inherits
+/// whatever flow it was already in - benign when that is `Wait`, but a busy-loop if it had
+/// been polling. `u32::MAX` seconds (~136 years) is indistinguishable from "forever" for an
+/// interactive frame loop while staying well clear of overflow.
+const WAIT_INDEFINITELY: Duration = Duration::from_secs(u32::MAX as u64);
+
 pub trait UpdateModeExt {
-    /// Wait indefinitely for the next update.
+    /// Wait indefinitely for the next update, reacting to device, user and window events.
     fn wait() -> UpdateMode;
-    /// Freeze the application, sending no further updates.
+    /// Stop driving updates from the frame loop, while still reacting to window events so
+    /// the window can be closed, resized and redrawn.
+    ///
+    /// Note that `bevy_winit` treats cursor movement over a focused window as a window event,
+    /// so a bare `freeze` still re-runs `update`/`view` whenever the mouse moves. For a true
+    /// "draw once, then hold" loop use [`RunMode::loop_once`], which caps how many times
+    /// `update`/`view` run regardless of input and holds the last frame on screen.
     fn freeze() -> UpdateMode;
+    /// Drive updates at a fixed rate of `hz` ticks per second, like Processing's
+    /// `frameRate`.
+    ///
+    /// Device, user and window events are still received, but are buffered until the
+    /// next tick rather than waking the loop early, so the rate stays steady regardless
+    /// of input activity (input latency is at most one tick). The window remains
+    /// closable, resizable and redrawable because each tick runs the frame loop, and
+    /// thus bevy's `Last`-schedule window systems.
+    ///
+    /// A non-positive `hz` has no sensible tick interval and falls back to [`freeze`].
+    ///
+    /// [`freeze`]: UpdateModeExt::freeze
+    fn rate(hz: f64) -> UpdateMode;
 }
 
 impl UpdateModeExt for UpdateMode {
     fn wait() -> UpdateMode {
         UpdateMode::Reactive {
-            wait: Duration::MAX,
+            wait: WAIT_INDEFINITELY,
             react_to_device_events: true,
             react_to_user_events: true,
             react_to_window_events: true,
@@ -998,7 +1204,24 @@ impl UpdateModeExt for UpdateMode {
 
     fn freeze() -> UpdateMode {
         UpdateMode::Reactive {
-            wait: Duration::MAX,
+            wait: WAIT_INDEFINITELY,
+            react_to_device_events: false,
+            react_to_user_events: false,
+            // Keep reacting to window events: bevy's window-close systems run in the
+            // `Last` schedule, which only runs when an update is triggered. Ignoring
+            // window events here would leave a frozen window unable to close or redraw.
+            react_to_window_events: true,
+        }
+    }
+
+    fn rate(hz: f64) -> UpdateMode {
+        if hz <= 0.0 {
+            return UpdateMode::freeze();
+        }
+        UpdateMode::Reactive {
+            wait: Duration::from_secs_f64(1.0 / hz),
+            // Buffer all events until the next tick so the rate stays steady; the finite
+            // wait keeps the frame loop (and window systems) running every tick.
             react_to_device_events: false,
             react_to_user_events: false,
             react_to_window_events: false,

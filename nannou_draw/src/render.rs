@@ -147,6 +147,7 @@ impl Plugin for NannouRenderPlugin {
 
         app.add_plugins((
             ExtractComponentPlugin::<NannouTransient>::default(),
+            ExtractComponentPlugin::<NannouMeshCamera>::default(),
             ExtractComponentPlugin::<ShaderModelMesh>::default(),
             ExtractComponentPlugin::<IndirectMesh>::default(),
             ExtractComponentPlugin::<InstancedMesh>::default(),
@@ -156,7 +157,10 @@ impl Plugin for NannouRenderPlugin {
             NannouShaderModelPlugin::<DefaultNannouShaderModel>::default(),
         ))
         .init_resource::<TextModelKeepalive>()
-        .add_systems(First, clear_previous_frame)
+        // Both are skipped while `DrawFrozen` is set so the last frame's meshes are
+        // neither despawned (`clear_previous_frame`) nor rebuilt (`update_draw_mesh`),
+        // leaving them - and the camera clear color - in place for the render graph.
+        .add_systems(First, clear_previous_frame.run_if(crate::draw_active))
         // `update_draw_mesh` (re)spawns the draw meshes each frame, so it must run
         // before Bevy computes visibility - otherwise the freshly spawned meshes
         // have `ViewVisibility == false` when the render-world extraction runs and
@@ -165,6 +169,7 @@ impl Plugin for NannouRenderPlugin {
         .add_systems(
             PostUpdate,
             update_draw_mesh
+                .run_if(crate::draw_active)
                 .before(VisibilitySystems::VisibilityPropagate)
                 .after(bevy::text::load_font_assets_into_font_collection),
         );
@@ -400,7 +405,7 @@ pub(crate) fn queue_shader_model<SM, QF, RC>(
         extracted_instances,
     ): (
         Res<RenderMeshInstances>,
-        Query<(Entity, &MainEntity, &DrawIndex), QF>,
+        Query<(Entity, &MainEntity, &DrawIndex, &NannouMeshCamera), QF>,
         ResMut<ViewSortedRenderPhases<Transparent3d>>,
         Query<(
             &ExtractedView,
@@ -441,7 +446,11 @@ pub(crate) fn queue_shader_model<SM, QF, RC>(
                 view_key |= MeshPipelineKey::DEBAND_DITHER;
             }
         }
-        for (entity, main_entity, draw_idx) in &nannou_meshes {
+        for (entity, main_entity, draw_idx, mesh_camera) in &nannou_meshes {
+            // Only queue a mesh into the view of the window it was drawn to.
+            if mesh_camera.0 != view.retained_view_entity.main_entity.id() {
+                continue;
+            }
             let Some(model_asset) = extracted_instances.get(main_entity) else {
                 continue;
             };
@@ -468,7 +477,10 @@ pub(crate) fn queue_shader_model<SM, QF, RC>(
                 .specialize(&pipeline_cache, &custom_pipeline, key, &mesh.layout)
                 .unwrap();
 
-            phase.add(Transparent3d {
+            // Bevy 0.19 split `SortedRenderPhase::add` into retained/transient
+            // variants. This queue rebuilds the phase every frame (like Bevy's
+            // sprite path), so use `add_transient` to clear items each frame.
+            phase.add_transient(Transparent3d {
                 sorting_info: TransparentSortingInfo3d::AlwaysOnTop,
                 distance: draw_idx.0 as f32,
                 pipeline,
@@ -663,7 +675,7 @@ fn update_shader_model<SM>(
 fn update_draw_mesh(
     mut commands: Commands,
     draw_q: Query<&Draw>,
-    mut cameras_q: Query<(&mut Camera, &RenderTarget, &RenderLayers), With<NannouCamera>>,
+    mut cameras_q: Query<(Entity, &mut Camera, &RenderTarget, &RenderLayers), With<NannouCamera>>,
     windows: Query<(&Window, Has<PrimaryWindow>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     text_cx: Res<crate::text::font::SharedTextCx>,
@@ -674,8 +686,8 @@ fn update_draw_mesh(
     mut text_model_keepalive: ResMut<TextModelKeepalive>,
 ) {
     for draw in draw_q.iter() {
-        let Some((mut window_camera, _, window_layers)) =
-            cameras_q.iter_mut().find(|(_, render_target, _)| {
+        let Some((camera_entity, mut window_camera, _, window_layers)) =
+            cameras_q.iter_mut().find(|(_, _, render_target, _)| {
                 if let RenderTarget::Window(WindowRef::Primary) = render_target {
                     let Ok((_, is_primary)) = windows.get(draw.window) else {
                         return false;
@@ -767,6 +779,7 @@ fn update_draw_mesh(
                             NoAutomaticBatching,
                             DrawIndex(idx),
                             window_layers.clone(),
+                            NannouMeshCamera(camera_entity),
                         ));
                         text_model_keepalive.0.push(handle);
                     }
@@ -805,6 +818,7 @@ fn update_draw_mesh(
                             NoAutomaticBatching,
                             DrawIndex(idx),
                             window_layers.clone(),
+                            NannouMeshCamera(camera_entity),
                         ));
                         mesh
                     });
@@ -848,6 +862,7 @@ fn update_draw_mesh(
                         NoAutomaticBatching,
                         DrawIndex(idx),
                         window_layers.clone(),
+                        NannouMeshCamera(camera_entity),
                     ));
                 }
                 DrawCommand::Indirect(prim, indirect_buffer) => {
@@ -886,6 +901,7 @@ fn update_draw_mesh(
                         NoAutomaticBatching,
                         DrawIndex(idx),
                         window_layers.clone(),
+                        NannouMeshCamera(camera_entity),
                     ));
                 }
                 DrawCommand::Context(ctx) => {
@@ -907,6 +923,13 @@ fn update_draw_mesh(
 
 #[derive(Component, ExtractComponent, Clone)]
 pub struct DrawIndex(pub usize);
+
+/// The main-world entity of the [`NannouCamera`] a draw mesh was generated for.
+///
+/// [`queue_shader_model`] uses this to scope each mesh to its window's view,
+/// rather than queuing every mesh into every camera's phase.
+#[derive(Component, ExtractComponent, Clone, Copy)]
+pub struct NannouMeshCamera(pub Entity);
 
 #[derive(Component, ExtractComponent, Clone)]
 pub struct NannouTransient;
