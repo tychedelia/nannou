@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use nannou_core::glam;
 
 use crate::draw::{Draw, drawing};
 
@@ -20,7 +21,7 @@ impl Properties {
             Properties::LookAt(p) => {
                 let eye = Vec3::ZERO;
                 let up = Vec3::Y;
-                Mat4::look_at_rh(eye, p, up)
+                glam::camera::rh::view::look_at_mat4(eye, p, up)
             }
             Properties::Quat(q) => Mat4::from_quat(q),
         }

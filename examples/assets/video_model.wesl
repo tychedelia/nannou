@@ -1,11 +1,10 @@
-#import bevy_pbr::{
-    mesh_view_bindings::view,
-    mesh_view_bindings::globals,
+import bevy_pbr::render::{
+    mesh_view_bindings::{view, globals},
     forward_io::VertexOutput,
-}
+};
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var texture_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var texture_sampler: sampler;
 
 @fragment
 fn fragment(

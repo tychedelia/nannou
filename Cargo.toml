@@ -2,6 +2,7 @@
 members = [
     "nannou_derive",
     "nannou_draw",
+    "nannou_isf",
     "nannou_midi",
     "nannou_video",
     "nannou_webcam",
@@ -32,11 +33,9 @@ repository = "https://github.com/nannou-org/nannou.git"
 
 [workspace.dependencies]
 audrey = "0.3"
-bevy = { git = "https://github.com/bevyengine/bevy", branch = "main", default-features = false }
-bevy_egui = "0.40.0"
-# `bevy-inspector-egui` has no Bevy 0.19 release yet. Re-enable it (and the
-# `inspector` feature + `inspector_ui` example) once one lands.
-#bevy-inspector-egui = "0.35"
+bevy = { version = "0.20.0", default-features = false }
+bevy_egui = "0.43.1"
+bevy-inspector-egui = "0.38"
 bitflags = "2.9"
 bytemuck = "1.22"
 crossbeam-channel = "0.5"
@@ -47,14 +46,16 @@ evalexpr = "13"
 find_folder = "0.3"
 flume = "0.12"
 futures = "0.3"
-glam = { version = "0.33",  default-features = false, features = ["all-types"] }
+glam = { version = "0.33", default-features = false }
 hound = "3.4"
 hrtf = "0.8"
 ilda-idtf = "0.1"
 image = { version = "0.25", default-features = false }
+isf = "0.1.0"
 lasy = "0.4"
 lyon = "1.0"
 midir = "0.11"
+naga = "30"
 nokhwa = { version = "0.10", features = ["input-native", "camera-sync-impl"] }
 noise = "0.9"
 notosans = "0.1"

@@ -61,7 +61,7 @@ fn update(app: &App, model: &mut Model) {
     let new_r = random_range(1.0, 7.0);
     let new_x = random_range(win.left() + new_r, win.right() - new_r);
     let new_y = random_range(win.top() - new_r, win.bottom() + new_r);
-    let mut closest_dist = std::f32::MAX;
+    let mut closest_dist = f32::MAX;
     let mut closest_index = 0;
     // which circle is the closest?
     for i in 0..model.current_count {

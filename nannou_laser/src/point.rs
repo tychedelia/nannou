@@ -174,11 +174,11 @@ impl Hash for Point {
             fn from(p: Point) -> Self {
                 let [px, py] = p.position;
                 let [pr, pg, pb] = p.color;
-                let x = (px * std::i16::MAX as f32) as i32;
-                let y = (py * std::i16::MAX as f32) as i32;
-                let r = (pr * std::u16::MAX as f32) as u32;
-                let g = (pg * std::u16::MAX as f32) as u32;
-                let b = (pb * std::u16::MAX as f32) as u32;
+                let x = (px * i16::MAX as f32) as i32;
+                let y = (py * i16::MAX as f32) as i32;
+                let r = (pr * u16::MAX as f32) as u32;
+                let g = (pg * u16::MAX as f32) as u32;
+                let b = (pb * u16::MAX as f32) as u32;
                 let pos = [x, y];
                 let rgb = [r, g, b];
                 HashPoint { pos, rgb }

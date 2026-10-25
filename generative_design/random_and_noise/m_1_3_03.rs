@@ -103,7 +103,7 @@ fn update(app: &App, model: &mut Model) {
                 1.0,
                 -1.0,
                 0.0,
-                std::u8::MAX as f64,
+                u8::MAX as f64,
             );
         } else if model.noise_mode == 2 {
             let n = map_range(
@@ -111,12 +111,12 @@ fn update(app: &App, model: &mut Model) {
                 -1.0,
                 1.0,
                 0.0,
-                std::u8::MAX as f64 / 10.0,
+                u8::MAX as f64 / 10.0,
             );
-            noise_value = (n - n.floor()) * std::u8::MAX as f64;
+            noise_value = (n - n.floor()) * u8::MAX as f64;
         }
         let n = noise_value as u8;
-        nannou::image::Rgba([n, n, n, std::u8::MAX])
+        nannou::image::Rgba([n, n, n, u8::MAX])
     });
 
     // Upload the freshly generated noise into the persistent texture. The image

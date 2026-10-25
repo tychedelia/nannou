@@ -323,13 +323,16 @@ fn update(app: &App, model: &mut Model) {
 
     let ctx = app.egui();
 
+    let mut root_ui = egui::Ui::new(
+        ctx.clone(),
+        "root".into(),
+        egui::UiBuilder::new()
+            .layer_id(egui::LayerId::background())
+            .max_rect(ctx.viewport_rect()),
+    );
+
     // The timeline area.
-    // `CentralPanel::show(ctx, ..)` was deprecated in egui 0.34 in favour of
-    // `show_inside(ui, ..)`, but bevy_egui doesn't yet expose a non-deprecated
-    // way to obtain a root `Ui` from its `Context`, so keep it (and silence the
-    // warning) until it does.
-    #[allow(deprecated)]
-    egui::containers::CentralPanel::default().show(&ctx, |ui| {
+    egui::containers::CentralPanel::default().show(&mut root_ui, |ui| {
         fn grid_min_col_width(ui: &egui::Ui, n_options: usize) -> f32 {
             let gap_space = ui.spacing().item_spacing.x * (n_options as f32 - 1.0);
             let grid_w = ui.available_width();

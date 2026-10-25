@@ -20,6 +20,9 @@ bevy.workspace = true
 hrtf.workspace = true
 nannou = { workspace = true }
 nannou_audio = { workspace = true }
+# `nannou_isf` isn't published; depended on directly here (this crate is
+# `publish = false`) to keep the `isf_simple` example working.
+nannou_isf = { path = "../nannou_isf" }
 nannou_laser = { workspace = true, features = ["ffi", "ilda-idtf"] }
 nannou_osc = { workspace = true }
 walkdir.workspace = true
@@ -138,6 +141,11 @@ path = "draw/draw_textured_polygon.rs"
 name = "draw_transform"
 path = "draw/draw_transform.rs"
 
+# Isf
+[[example]]
+name = "isf_simple"
+path = "isf/simple.rs"
+
 # Laser
 [[example]]
 name = "laser_ffi"
@@ -228,12 +236,10 @@ required-features = ["nannou/egui"]
 name = "simple_ui"
 path = "ui/egui/simple_ui.rs"
 required-features = ["nannou/egui"]
-# TODO: re-enable once `bevy-inspector-egui` supports Bevy 0.19 (needs the
-# `nannou/inspector` feature and `Builder::model_ui`; see the tracking issue).
-#[[example]]
-#name = "inspector_ui"
-#path = "ui/egui/inspector_ui.rs"
-#required-features = ["nannou/inspector"]
+[[example]]
+name = "inspector_ui"
+path = "ui/egui/inspector_ui.rs"
+required-features = ["nannou/inspector"]
 
 # Video
 [[example]]

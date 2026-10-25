@@ -17,9 +17,7 @@ bevy = { workspace = true, default-features = false, features = [
     "bevy_window",
     "bevy_winit",
 ]}
-# `bevy-inspector-egui` has no Bevy 0.19 release yet - kept disabled (see the
-# `inspector` feature below and the RC -> stable tracking issue).
-#bevy-inspector-egui = { workspace = true, optional = true }
+bevy-inspector-egui = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }
 nannou_derive = { workspace = true }
 nannou_draw = { workspace = true }
@@ -65,8 +63,7 @@ default = [
 # `immutable_ctx` lets nannou read the egui context through `&self` (the classic `app.egui()`
 # returns a cheap `egui::Context` handle), matching nannou's imperative single-pass UI usage.
 egui = ["dep:bevy_egui", "bevy_egui/immutable_ctx"]
-# TODO: re-enable once `bevy-inspector-egui` supports Bevy 0.19.
-#inspector = ["egui", "dep:bevy-inspector-egui"]
+inspector = ["egui", "dep:bevy-inspector-egui", "bevy/reflect_auto_register"]
 hot_reload = ["bevy/file_watcher", "bevy/multi_threaded"]
 nightly = ["nannou_draw/nightly"]
 # Bundle Noto Sans as the default font, for deterministic rendering across

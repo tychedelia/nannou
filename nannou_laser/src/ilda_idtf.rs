@@ -133,11 +133,11 @@ where
 }
 
 fn normalise_coord(c: i16) -> f32 {
-    c as f32 / std::i16::MAX as f32
+    c as f32 / i16::MAX as f32
 }
 
 fn normalise_color(c: u8) -> f32 {
-    c as f32 / std::u8::MAX as f32
+    c as f32 / u8::MAX as f32
 }
 
 fn coords3d_to_position(coords: layout::Coords3d) -> point::Position {

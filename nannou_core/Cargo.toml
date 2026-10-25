@@ -10,7 +10,7 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
-glam = { workspace = true, features = ["rand"] }
+glam = { workspace = true, features = ["f64", "i32", "u32", "rand-010"] }
 # TODO: Awaiting `no-std` to be published.
 # noise = 0.6
 num-traits.workspace = true

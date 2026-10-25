@@ -829,8 +829,8 @@ fn centered_blank() -> ether_dream::protocol::DacPoint {
 
 // Convert a `lase::point::Position` type to an `i16` representation compatible with ether dream.
 fn position_to_ether_dream_position([px, py]: crate::point::Position) -> [i16; 2] {
-    let min = std::i16::MIN;
-    let max = std::i16::MAX;
+    let min = i16::MIN;
+    let max = i16::MAX;
     let x = map_range(clamp(px, -1.0, 1.0), -1.0, 1.0, min as f64, max as f64) as i16;
     let y = map_range(clamp(py, -1.0, 1.0), -1.0, 1.0, min as f64, max as f64) as i16;
     [x, y]
@@ -838,9 +838,9 @@ fn position_to_ether_dream_position([px, py]: crate::point::Position) -> [i16; 2
 
 // Convert a `lase::point::Rgb` type to an `u16` representation compatible with ether dream.
 fn color_to_ether_dream_color([pr, pg, pb]: crate::point::Rgb) -> [u16; 3] {
-    let r = (clamp(pr, 0.0, 1.0) * std::u16::MAX as f32) as u16;
-    let g = (clamp(pg, 0.0, 1.0) * std::u16::MAX as f32) as u16;
-    let b = (clamp(pb, 0.0, 1.0) * std::u16::MAX as f32) as u16;
+    let r = (clamp(pr, 0.0, 1.0) * u16::MAX as f32) as u16;
+    let g = (clamp(pg, 0.0, 1.0) * u16::MAX as f32) as u16;
+    let b = (clamp(pb, 0.0, 1.0) * u16::MAX as f32) as u16;
     [r, g, b]
 }
 

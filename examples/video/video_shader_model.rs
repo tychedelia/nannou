@@ -15,7 +15,7 @@ fn main() {
     .run();
 }
 
-#[shader_model(fragment = "video_model.wgsl")]
+#[shader_model(fragment = "video_model.wesl")]
 struct VideoShaderModel {
     #[texture(0)]
     #[sampler(1)]

@@ -118,8 +118,8 @@ impl Compute for ComputeModel {
 
 // Our shader model that will be used to render the particles
 #[shader_model(
-    fragment = "shaders/particle_sdf_model.wgsl",
-    vertex = "shaders/particle_sdf_model.wgsl"
+    fragment = "shaders/particle_sdf_model.wesl",
+    vertex = "shaders/particle_sdf_model.wesl"
 )]
 struct ShaderModel {
     #[storage(0, read_only, visibility(vertex))]

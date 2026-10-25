@@ -11,7 +11,7 @@ fn main() {
 struct Model {}
 
 // This struct defines the data that will be passed to your shader
-#[shader_model(fragment = "draw_custom_shader_model.wgsl")]
+#[shader_model(fragment = "draw_custom_shader_model.wesl")]
 struct ShaderModel {
     #[uniform(0)]
     color: LinearRgba,

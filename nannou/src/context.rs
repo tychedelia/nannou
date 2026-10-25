@@ -641,7 +641,6 @@ impl Window<'_, '_, '_> {
             .expect("the RenderQueue resource is not available")
             .deref()
             .deref()
-            .deref()
     }
 
     /// The number of MSAA samples used by the camera rendering to this window.

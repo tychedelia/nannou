@@ -8,10 +8,7 @@ use bevy::{
     camera::NormalizedRenderTarget,
     core_pipeline::schedule::{Core3d, Core3dSystems},
     diagnostic::FrameCount,
-    ecs::{
-        entity::{ContainsEntity, Entity},
-        prelude::Query,
-    },
+    ecs::{entity::ContainsEntity, prelude::Query},
     prelude::{IntoScheduleConfigs, Res},
     render::{
         ExtractSchedule,

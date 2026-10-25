@@ -30,7 +30,7 @@ bevy = { workspace = true, default-features = false, features = [
 wasm-bindgen.workspace = true
 js-sys = "0.3"
 gloo-events = "0.2"
-wgpu-types = { version = "28.0", features = ["web"] }
+wgpu-types = { version = "30", features = ["web"] }
 web-sys = { workspace = true, features = [
     "Blob",
     "BlobPropertyBag",

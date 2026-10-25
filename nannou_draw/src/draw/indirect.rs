@@ -5,8 +5,8 @@ use crate::{
     draw::{Draw, DrawCommand, drawing::Drawing, primitive::Primitive},
     render::{PreparedShaderModel, ShaderModel, queue_shader_model},
 };
+use bevy::extract::extract_instances::ExtractedInstances;
 use bevy::pbr::{MATERIAL_BIND_GROUP_INDEX, SetMeshViewBindingArrayBindGroup};
-use bevy::render::extract_instances::ExtractedInstances;
 use bevy::{
     core_pipeline::core_3d::Transparent3d,
     ecs::system::{SystemParamItem, lifetimeless::*},

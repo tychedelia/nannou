@@ -25,11 +25,6 @@ use bevy::{
     window::{ExitCondition, WindowClosed, WindowEvent, WindowFocused, WindowResized},
     winit::UpdateMode,
 };
-// TODO: re-enable once `bevy-inspector-egui` supports Bevy 0.19 (see the
-// RC -> stable tracking issue), along with `Builder::model_ui` and the
-// `inspector_ui` example.
-//#[cfg(feature = "inspector")]
-//use bevy_inspector_egui::quick::ResourceInspectorPlugin;
 
 use crate::NannouPlugin;
 use crate::context::App;
@@ -228,20 +223,23 @@ impl RunMode {
     }
 }
 
-/// Build `bevy_egui`'s plugin in single-pass mode.
-///
-/// Single-pass mode lets nannou users build egui UI imperatively from their
-/// `update`/`view` functions; `bevy_egui`'s multi-pass default instead expects
-/// UI to be built within the dedicated `EguiPrimaryContextPass` schedule. The
-/// `enable_multipass_for_primary_context` flag is deprecated upstream (single-
-/// pass "may get deprecated in the future"), hence `#[allow(deprecated)]`;
-/// revisit if nannou moves its egui integration onto that schedule.
+/// Integrates `bevy_egui` so that UI can be built imperatively from `update`/`view`.
 #[cfg(feature = "egui")]
-#[allow(deprecated)]
-fn egui_plugin() -> bevy_egui::EguiPlugin {
-    bevy_egui::EguiPlugin {
-        enable_multipass_for_primary_context: false,
-        ..bevy_egui::EguiPlugin::default()
+struct EguiIntegrationPlugin;
+
+#[cfg(feature = "egui")]
+impl Plugin for EguiIntegrationPlugin {
+    fn build(&self, app: &mut bevy::app::App) {
+        app.add_plugins(bevy_egui::EguiPlugin::default())
+            .insert_resource(bevy_egui::EguiGlobalSettings {
+                auto_create_primary_context: false,
+                ..default()
+            })
+            .add_observer(|camera: On<Add<NannouCamera>>, mut commands: Commands| {
+                commands
+                    .entity(camera.event_target())
+                    .insert(bevy_egui::EguiContext::default());
+            });
     }
 }
 
@@ -320,7 +318,7 @@ where
                         ..default()
                     }),
                 #[cfg(feature = "egui")]
-                egui_plugin(),
+                EguiIntegrationPlugin,
                 NannouPlugin,
             ))
             .init_resource::<RunMode>();
@@ -542,19 +540,66 @@ where
     }
 }
 
-// TODO: re-enable once `bevy-inspector-egui` supports Bevy 0.19 (see the
-// RC -> stable tracking issue).
-//impl<M> Builder<M>
-//where
-//    M: Reflect + GetTypeRegistration + 'static,
-//{
-//    #[cfg(feature = "inspector")]
-//    pub fn model_ui(mut self) -> Self {
-//        self.app
-//            .add_plugins(ResourceInspectorPlugin::<ModelHolder<M>>::default());
-//        self
-//    }
-//}
+#[cfg(feature = "inspector")]
+impl<M> Builder<M>
+where
+    M: Reflect + GetTypeRegistration + 'static,
+{
+    /// Show an inspector window for the model on the primary window, editing its reflected
+    /// fields live.
+    pub fn model_ui(mut self) -> Self {
+        if !self
+            .app
+            .is_plugin_added::<bevy_inspector_egui::DefaultInspectorConfigPlugin>()
+        {
+            self.app
+                .add_plugins(bevy_inspector_egui::DefaultInspectorConfigPlugin);
+        }
+        self.app
+            .add_systems(Update, model_inspector_ui::<M>.after(update::<M>));
+        self
+    }
+}
+
+/// Draws the [`Builder::model_ui`] inspector window with the primary window's egui context.
+#[cfg(feature = "inspector")]
+fn model_inspector_ui<M>(world: &mut World)
+where
+    M: Reflect + GetTypeRegistration + 'static,
+{
+    use bevy::{
+        camera::RenderTarget,
+        window::{PrimaryWindow, WindowRef},
+    };
+    use bevy_egui::{EguiContext, egui};
+
+    let Ok(window) = world
+        .query_filtered::<Entity, With<PrimaryWindow>>()
+        .single(world)
+    else {
+        return;
+    };
+    let ctx = world
+        .query_filtered::<(&EguiContext, &RenderTarget), With<NannouCamera>>()
+        .iter(world)
+        .find_map(|(ctx, target)| match target {
+            RenderTarget::Window(WindowRef::Entity(entity)) if *entity == window => {
+                Some(ctx.get().clone())
+            }
+            _ => None,
+        });
+    let Some(ctx) = ctx else {
+        return;
+    };
+    egui::Window::new("Model")
+        .default_size((0.0, 0.0))
+        .show(&ctx, |ui| {
+            egui::ScrollArea::both().show(ui, |ui| {
+                bevy_inspector_egui::bevy_inspector::ui_for_resource::<ModelHolder<M>>(world, ui);
+                ui.allocate_space(ui.available_size());
+            });
+        });
+}
 
 impl SketchBuilder {
     /// The size of the sketch window.

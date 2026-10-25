@@ -34,7 +34,7 @@ fn update(draw: Single<&Draw>, time: Res<Time>) {
     draw.ellipse().w_h(100.0, 100.0);
 }
 
-#[shader_model(fragment = "shaders/simple_shader.wgsl")]
+#[shader_model(fragment = "shaders/simple_shader.wesl")]
 struct ShaderModel {
     #[uniform(0)]
     color: LinearRgba,

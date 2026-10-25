@@ -32,27 +32,6 @@ pub trait Vec2Rotate {
     fn rotate(self, radians: f32) -> Self;
 }
 
-/// Create a transformation matrix that will cause a vector to point at `dir` using `up` for
-/// orientation.
-// NOTE: Remove this if we can land something similar upstream in `glam`.
-pub trait Mat4LookTo {
-    fn look_to_rh(eye: glam::Vec3, dir: glam::Vec3, up: glam::Vec3) -> glam::Mat4 {
-        let f = dir.normalize();
-        let s = f.cross(up).normalize();
-        let u = s.cross(f);
-        glam::Mat4::from_cols(
-            glam::vec4(s.x, u.x, -f.x, 0.0),
-            glam::vec4(s.y, u.y, -f.y, 0.0),
-            glam::vec4(s.z, u.z, -f.z, 0.0),
-            glam::vec4(-eye.dot(s), -eye.dot(u), eye.dot(f), 1.0),
-        )
-    }
-
-    fn look_to_lh(eye: glam::Vec3, dir: glam::Vec3, up: glam::Vec3) -> glam::Mat4 {
-        Self::look_to_rh(eye, -dir, up)
-    }
-}
-
 impl ConvertAngle for f32 {
     fn deg_to_rad(self) -> Self {
         self * core::f32::consts::TAU / ONE_TURN_DEGREES_F32
@@ -98,8 +77,6 @@ impl Vec2Rotate for glam::Vec2 {
         glam::vec2(x, y)
     }
 }
-
-impl Mat4LookTo for glam::Mat4 {}
 
 /// Maps a value from an input range to an output range.
 ///

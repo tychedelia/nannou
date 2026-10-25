@@ -1,3 +1,4 @@
+use nannou::glam;
 use nannou::prelude::*;
 use std::sync::{Arc, Mutex};
 
@@ -368,11 +369,11 @@ fn create_uniforms(world_rotation: f32, [w, h]: [u32; 2]) -> Uniforms {
     let fov_y = std::f32::consts::FRAC_PI_2;
     let near = 0.01;
     let far = 100.0;
-    let proj = Mat4::perspective_rh_gl(fov_y, aspect_ratio, near, far);
+    let proj = glam::camera::rh::proj::opengl::perspective(fov_y, aspect_ratio, near, far);
     let eye = pt3(0.3, 0.3, 1.0);
     let target = Point3::ZERO;
     let up = Vec3::Y;
-    let view = Mat4::look_at_rh(eye, target, up);
+    let view = glam::camera::rh::view::look_at_mat4(eye, target, up);
     let world_scale = Mat4::from_scale(Vec3::splat(0.015));
     Uniforms {
         world: world_rotation,

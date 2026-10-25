@@ -20,6 +20,7 @@ use bevy::{
             lifetimeless::{Read, SRes},
         },
     },
+    extract::extract_instances::{ExtractInstance, ExtractInstancesPlugin, ExtractedInstances},
     mesh::MeshVertexBufferLayoutRef,
     pbr::{
         DrawMesh, MATERIAL_BIND_GROUP_INDEX, MeshPipeline, MeshPipelineKey, MeshPipelineSystems,
@@ -28,10 +29,10 @@ use bevy::{
     },
     prelude::{TypePath, *},
     render::{
-        RenderApp, RenderStartup, RenderSystems,
+        GpuResourceAppExt, RenderApp, RenderStartup, RenderSystems,
         batching::NoAutomaticBatching,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
-        extract_instances::{ExtractInstance, ExtractInstancesPlugin, ExtractedInstances},
+        material_bind_groups::FallbackBuffer,
         mesh::RenderMesh,
         render_asset::{
             PrepareAssetError, RenderAsset, RenderAssetPlugin, RenderAssets, prepare_assets,
@@ -41,13 +42,14 @@ use bevy::{
             RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
-            AsBindGroup, AsBindGroupError, AsBindGroupShaderType, BindGroup, BindGroupId,
-            BindGroupLayoutDescriptor, BindingResources, BlendState, PipelineCache, PolygonMode,
-            RenderPipelineDescriptor, ShaderType, SpecializedMeshPipeline,
-            SpecializedMeshPipelineError, SpecializedMeshPipelines,
+            AsBindGroup, AsBindGroupError, AsBindGroupShaderType, BindGroup, BindGroupBuilder,
+            BindGroupId, BindGroupLayoutDescriptor, BindingResources, BlendState, PipelineCache,
+            PolygonMode, PreparedBindGroup, RenderPipelineDescriptor, ShaderType,
+            SpecializedMeshPipeline, SpecializedMeshPipelineError, SpecializedMeshPipelines,
+            UnpreparedBindingResource,
         },
         renderer::RenderDevice,
-        storage::ShaderBuffer,
+        storage::{GpuShaderBuffer, ShaderBuffer},
         sync_world::MainEntity,
         texture::GpuImage,
         view::ExtractedView,
@@ -141,8 +143,8 @@ impl Plugin for NannouRenderPlugin {
         load_internal_asset!(
             app,
             DEFAULT_NANNOU_SHADER_HANDLE,
-            "nannou.wgsl",
-            Shader::from_wgsl
+            "nannou.wesl",
+            Shader::from_wesl
         );
 
         app.add_plugins((
@@ -188,7 +190,8 @@ where
         app.init_asset::<SM>()
             .add_plugins((
                 ExtractInstancesPlugin::<ShaderModelAsset<SM>, RenderApp>::extract_visible(),
-                RenderAssetPlugin::<PreparedShaderModel<SM>>::default(),
+                RenderAssetPlugin::<PreparedShaderModel<SM>, (GpuImage, GpuShaderBuffer)>::default(
+                ),
                 IndirectShaderModelPlugin::<SM>::default(),
                 InstancedShaderModelPlugin::<SM>::default(),
             ))
@@ -201,7 +204,7 @@ where
 
         app.sub_app_mut(RenderApp)
             .add_render_command::<Transparent3d, DrawShaderModel<SM>>()
-            .init_resource::<SpecializedMeshPipelines<ShaderModelPipeline<SM>>>()
+            .init_gpu_resource::<SpecializedMeshPipelines<ShaderModelPipeline<SM>>>()
             .add_systems(
                 bevy::render::Render,
                 queue_shader_model::<SM, With<ShaderModelMesh>, DrawShaderModel<SM>>
@@ -237,21 +240,31 @@ impl<SM: ShaderModel> RenderAsset for PreparedShaderModel<SM> {
         SRes<RenderDevice>,
         SRes<ShaderModelPipeline<SM>>,
         SRes<PipelineCache>,
+        SRes<FallbackBuffer>,
+        SRes<RenderAssets<GpuShaderBuffer>>,
         SM::Param,
     );
 
     fn prepare_asset(
         shader_model: Self::SourceAsset,
         _asset_id: AssetId<Self::SourceAsset>,
-        (render_device, pipeline, pipeline_cache, shader_model_param): &mut SystemParamItem<
-            Self::Param,
-        >,
+        (
+            render_device,
+            pipeline,
+            pipeline_cache,
+            fallback_buffer,
+            shader_buffer_assets,
+            shader_model_param,
+        ): &mut SystemParamItem<Self::Param>,
         _previous_asset: Option<&Self>,
     ) -> Result<Self, PrepareAssetError<Self::SourceAsset>> {
-        match shader_model.as_bind_group(
+        match as_prepared_bind_group(
+            &shader_model,
             &pipeline.shader_model_layout_descriptor,
             render_device,
             pipeline_cache,
+            fallback_buffer,
+            shader_buffer_assets,
             shader_model_param,
         ) {
             Ok(prepared) => Ok(PreparedShaderModel {
@@ -265,6 +278,46 @@ impl<SM: ShaderModel> RenderAsset for PreparedShaderModel<SM> {
             Err(other) => Err(PrepareAssetError::AsBindGroupError(other)),
         }
     }
+}
+
+/// Creates the bind group for `value` like [`AsBindGroup::as_bind_group`], but returns
+/// [`AsBindGroupError::RetryNextUpdate`] until every [`ShaderBuffer`] it binds has been prepared
+/// on the GPU.
+pub fn as_prepared_bind_group<T: AsBindGroup>(
+    value: &T,
+    layout_descriptor: &BindGroupLayoutDescriptor,
+    render_device: &RenderDevice,
+    pipeline_cache: &PipelineCache,
+    fallback_buffer: &FallbackBuffer,
+    shader_buffer_assets: &RenderAssets<GpuShaderBuffer>,
+    param: &mut SystemParamItem<T::Param>,
+) -> Result<PreparedBindGroup, AsBindGroupError> {
+    let layout = pipeline_cache.get_bind_group_layout(layout_descriptor);
+    let mut builder = BindGroupBuilder::default();
+    match value.build_bind_group(&layout, render_device, param, false, &mut builder) {
+        Ok(()) => {
+            let pending = builder.binding_resources.iter().any(|(_, resource)| {
+                matches!(
+                    resource,
+                    UnpreparedBindingResource::ShaderBuffer(buffer)
+                        if shader_buffer_assets.get(buffer.id()).is_none()
+                )
+            });
+            if pending {
+                return Err(AsBindGroupError::RetryNextUpdate);
+            }
+        }
+        Err(AsBindGroupError::CreateBindGroupDirectly) => {}
+        Err(error) => return Err(error),
+    }
+    value.as_bind_group(
+        layout_descriptor,
+        render_device,
+        pipeline_cache,
+        fallback_buffer,
+        shader_buffer_assets,
+        param,
+    )
 }
 
 /// Sets the bind group for a given [`ShaderModel`] at the configured `I` index.

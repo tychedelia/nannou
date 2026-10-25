@@ -41,6 +41,46 @@ back to the origins.
   with `loop_once()` (hold after one frame). To run a fixed number of frames and then
   quit, call `App::quit()` from your own `update` once a counter reaches the target.
 
+- Updated to Bevy `0.20`, `wgpu` `30`, `bevy_egui` `0.43`, `egui` `0.36`, `glam`
+  `0.33` and `parley` `0.11`. Building nannou now requires Rust 1.97.1 or newer.
+  See the [Bevy 0.19 to 0.20 migration
+  guide](https://bevy.org/learn/migration-guides/0-19-to-0-20/) for changes to the
+  Bevy APIs nannou exposes, such as `ShaderBuffer` and render-world extraction.
+
+  Migrating to the new versions:
+
+  - Shaders are now [WESL](https://wesl-lang.dev). Custom shader models must be
+    `.wesl` files: replace `#import a::b` with `import a::b;` (Bevy's modules now
+    live under `bevy_pbr::render::..`), `#ifdef DEF` / `#endif` with `@if(DEF)` on
+    the following statement or block, and `#{MATERIAL_BIND_GROUP}` with
+    `constants::MATERIAL_BIND_GROUP`. Plain compute `.wgsl` shaders without
+    preprocessor directives are unchanged.
+  - Integer values passed between shader stages need an explicit
+    `@interpolate(flat)` attribute.
+  - `Mat4LookTo` is removed. Use `glam::camera::rh::view::look_to_mat4` (and
+    `look_at_mat4`), which replace glam's deprecated `Mat4` camera constructors.
+  - `Frame::new` takes the window entity and its `ExtractedWindow`, as extracted
+    windows are now render-world components.
+  - With the `egui` feature, every nannou window gets its own egui context, built
+    imperatively from `update` and `view` as before through `app.egui()`. egui
+    `0.36` panels lay out inside a `Ui`: create a root `egui::Ui` over
+    `ctx.viewport_rect()` and pass it to `CentralPanel::show` (see the
+    `laser_frame_stream_gui` example).
+
+- Re-enabled the `inspector` feature, `Builder::model_ui` and the `inspector_ui`
+  example on `bevy-inspector-egui` `0.38`. The feature turns on Bevy's
+  `reflect_auto_register`, so the inspector can find Bevy's types.
+
+- Added `nannou_draw::render::as_prepared_bind_group`, which creates a bind group
+  only once every `ShaderBuffer` it binds is on the GPU. Bevy 0.20 binds a 1-byte
+  placeholder for a buffer that is still being prepared, which wgpu rejects for
+  storage bindings; shader models and compute models now wait a frame instead.
+
+- `nannou_isf` translates ISF shaders to WGSL with naga's GLSL frontend, as Bevy
+  no longer loads GLSL. Shader errors are reported with naga's diagnostics, the
+  vertex stage uses Bevy's fullscreen shader, and the final pass follows the
+  view's texture format so HDR cameras work.
+
 ---
 
 # Version 0.20.0 (2026-06-20)

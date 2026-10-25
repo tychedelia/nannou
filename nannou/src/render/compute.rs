@@ -6,17 +6,21 @@ use bevy::{
     platform::collections::HashMap,
     prelude::*,
     render::{
-        Render, RenderSystems,
+        GpuResourceAppExt, Render, RenderSystems,
         extract_component::ExtractComponentPlugin,
+        material_bind_groups::FallbackBuffer,
+        render_asset::RenderAssets,
         render_resource::{
             AsBindGroupError, BindGroupLayoutDescriptor, CachedComputePipelineId,
             ComputePipelineDescriptor, PipelineCache, SpecializedComputePipeline,
             SpecializedComputePipelines,
         },
         renderer::{RenderContext, RenderDevice, ViewQuery},
+        storage::GpuShaderBuffer,
     },
     shader::ShaderRef,
 };
+use nannou_draw::render::as_prepared_bind_group;
 use std::{borrow::Cow, hash::Hash};
 use wgpu::ComputePassDescriptor;
 
@@ -43,6 +47,9 @@ where
         };
 
         render_app
+            .init_gpu_resource::<ComputePipelineIds<CM>>()
+            .init_gpu_resource::<NannouComputePipeline<CM>>()
+            .init_gpu_resource::<SpecializedComputePipelines<NannouComputePipeline<CM>>>()
             .add_systems(ExtractSchedule, sync_pipeline_cache::<CM>)
             .add_systems(
                 Render,
@@ -58,14 +65,10 @@ where
             return;
         };
 
-        render_app
-            .insert_resource(ComputePipelineIds::<CM>(HashMap::default()))
-            .init_resource::<NannouComputePipeline<CM>>()
-            .init_resource::<SpecializedComputePipelines<NannouComputePipeline<CM>>>()
-            .add_systems(
-                Core3d,
-                nannou_compute_system::<CM>.in_set(Core3dSystems::Prepass),
-            );
+        render_app.add_systems(
+            Core3d,
+            nannou_compute_system::<CM>.in_set(Core3dSystems::Prepass),
+        );
     }
 }
 
@@ -143,16 +146,21 @@ fn prepare_bind_group<CM>(
     pipeline: Res<NannouComputePipeline<CM>>,
     render_device: Res<RenderDevice>,
     pipeline_cache: Res<PipelineCache>,
+    fallback_buffer: Res<FallbackBuffer>,
+    shader_buffer_assets: Res<RenderAssets<GpuShaderBuffer>>,
     views_q: Query<(Entity, &ComputeModel<CM>)>,
     mut bind_group_param: StaticSystemParam<CM::Param>,
 ) where
     CM: Compute,
 {
     for (view, compute_model) in views_q.iter() {
-        let bind_group = match compute_model.0.as_bind_group(
+        let bind_group = match as_prepared_bind_group(
+            &compute_model.0,
             &pipeline.layout_descriptor,
             &render_device,
             &pipeline_cache,
+            &fallback_buffer,
+            &shader_buffer_assets,
             &mut bind_group_param,
         ) {
             Ok(bind_group) => bind_group,
@@ -185,6 +193,12 @@ pub(crate) struct ComputeState<S: Default + Clone + Send + Sync + 'static> {
 
 #[derive(Resource, Deref, DerefMut)]
 struct ComputePipelineIds<CM: Compute>(HashMap<CM::State, CachedComputePipelineId>);
+
+impl<CM: Compute> Default for ComputePipelineIds<CM> {
+    fn default() -> Self {
+        Self(HashMap::default())
+    }
+}
 
 #[derive(Component, ExtractComponent, Clone)]
 #[extract_app(bevy::render::RenderApp)]
@@ -246,8 +260,8 @@ where
             shader: self.shader.clone(),
             shader_defs: vec![],
             entry_point: Some(Cow::from(key.shader_entry)),
-            constants: vec![],
             zero_initialize_workgroup_memory: false,
+            constants: vec![],
         }
     }
 }

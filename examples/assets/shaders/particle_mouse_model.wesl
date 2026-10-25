@@ -1,7 +1,7 @@
-#import bevy_pbr::{
-    forward_io::{Vertex}
-    mesh_functions::{get_world_from_local, mesh_position_local_to_clip, mesh_position_local_to_world}
-}
+import bevy_pbr::render::{
+    forward_io::Vertex,
+    mesh_functions::mesh_position_local_to_clip,
+};
 
 struct Particle {
     position: vec2<f32>,
@@ -9,7 +9,7 @@ struct Particle {
     color: vec4<f32>,
 };
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<storage, read> particles: array<Particle>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<storage, read> particles: array<Particle>;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,

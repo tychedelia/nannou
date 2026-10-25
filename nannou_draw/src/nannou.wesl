@@ -1,8 +1,8 @@
-#import bevy_pbr::{
+import bevy_pbr::render::{
     mesh_functions,
-    forward_io::{Vertex , VertexOutput},
+    forward_io::{Vertex, VertexOutput, decompress_vertex},
     mesh_view_bindings::view,
-}
+};
 
 const FLAGS_TEXTURE_BIT: u32 = 1u;
 
@@ -11,58 +11,53 @@ struct ShaderModel {
     flags: u32,
 };
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> model: ShaderModel;
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(2) var texture_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> model: ShaderModel;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var texture_sampler: sampler;
 
 @vertex
-fn vertex(vertex: Vertex) -> VertexOutput {
+fn vertex(vertex_in: Vertex) -> VertexOutput {
     var out: VertexOutput;
 
-    // Use vertex.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
+    // Use vertex_in.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
     // See https://github.com/gfx-rs/naga/issues/2416 .
-    var world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+    let vertex = decompress_vertex(vertex_in, vertex_in.instance_index);
+    var world_from_local = mesh_functions::get_world_from_local(vertex_in.instance_index);
 
-#ifdef VERTEX_NORMALS
+@if(VERTEX_NORMALS)
     out.world_normal = mesh_functions::mesh_normal_local_to_world(
         vertex.normal,
-        // Use vertex.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
+        // Use vertex_in.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
         // See https://github.com/gfx-rs/naga/issues/2416
-        vertex.instance_index
+        vertex_in.instance_index
     );
-#endif
 
-#ifdef VERTEX_POSITIONS
+@if(VERTEX_POSITIONS) {
     out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
     out.position = view.clip_from_world * vec4(out.world_position.xyz, 1.0);
-#endif
+}
 
-#ifdef VERTEX_UVS_A
+@if(VERTEX_UVS_A)
     out.uv = vertex.uv;
-#endif
-#ifdef VERTEX_UVS_B
+@if(VERTEX_UVS_B)
     out.uv_b = vertex.uv_b;
-#endif
 
-#ifdef VERTEX_TANGENTS
+@if(VERTEX_TANGENTS)
     out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
         world_from_local,
         vertex.tangent,
-        // Use vertex.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
+        // Use vertex_in.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
         // See https://github.com/gfx-rs/naga/issues/2416
-        vertex.instance_index
+        vertex_in.instance_index
     );
-#endif
 
-#ifdef VERTEX_COLORS
+@if(VERTEX_COLORS)
     out.color = vertex.color;
-#endif
 
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    // Use vertex.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
+@if(VERTEX_OUTPUT_INSTANCE_INDEX)
+    // Use vertex_in.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
     // See https://github.com/gfx-rs/naga/issues/2416
-    out.instance_index = vertex.instance_index;
-#endif
+    out.instance_index = vertex_in.instance_index;
 
     return out;
 }
@@ -73,9 +68,8 @@ fn fragment(
 ) -> @location(0) vec4<f32> {
     var output_color: vec4<f32> = model.color;
 
-#ifdef VERTEX_COLORS
+@if(VERTEX_COLORS)
     output_color = output_color * mesh.color;
-#endif
 
     if ((model.flags & FLAGS_TEXTURE_BIT) != 0u) {
         output_color = output_color * textureSample(texture, texture_sampler, mesh.uv);
